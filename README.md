@@ -1,6 +1,6 @@
 # Chandra
 
-Chandra is a teacher-guided AI tutoring platform. Teachers configure tutor behavior, upload class materials, and review student conversations so the AI stays aligned with classroom goals.
+Chandra is a teacher-guided AI tutoring platform for classrooms. Teachers create class-specific AI tutors, define how they should help, ground responses in uploaded course materials, and review student conversations to understand where learners need support. The platform is designed to keep students doing the thinking while giving teachers control over tutor behavior, source usage, and follow-up interventions.
 
 ## Features
 
