@@ -5,9 +5,10 @@ Chandra is a teacher-guided AI tutoring platform. Teachers configure tutor behav
 ## Features
 
 - Student tutor chat with class, assignment, and model context.
-- Teacher dashboard for class settings, hidden tutor instructions, source materials, and conversation review.
+- Teacher dashboard for class settings, hidden tutor instructions, source materials, roster activity, and conversation review.
+- Teacher-reviewed student learning profiles with support notes and evidence from recent conversations.
 - Firebase Authentication, Firestore, and Storage integration.
-- PDF/source-grounded retrieval with embeddings and Firestore Vector Search.
+- PDF/source-grounded retrieval with embeddings, material visibility controls, and Firestore Vector Search.
 - LangGraph FastAPI backend for controlled PDF RAG chat through OpenRouter models.
 
 ## Stack
@@ -69,6 +70,7 @@ DEFAULT_MODEL=openai/gpt-5.4-mini
 
 BACKEND_API_BASE_URL=http://127.0.0.1:8000
 BACKEND_SHARED_SECRET=
+LEARNING_PROFILE_UPDATE_SECRET=
 
 GEMINI_API_KEY=
 GOOGLE_CLOUD_PROJECT=
@@ -96,6 +98,8 @@ npm run dev:api
 Open `http://localhost:3000`.
 
 Browser code calls the Next.js `/api/*` routes on the same origin. The Next.js server uses `BACKEND_API_BASE_URL` to reach the FastAPI LangGraph service, so do not set a public frontend API base URL for local FastAPI.
+
+Scheduled learning profile updates call `/api/student-learning-profiles/weekly` with `Authorization: Bearer $LEARNING_PROFILE_UPDATE_SECRET`.
 
 ## Quality Checks
 
