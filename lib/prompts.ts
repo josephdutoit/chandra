@@ -30,11 +30,13 @@ export async function buildTutorSystemPrompt({
   courseId,
   retrievalConfidence,
   retrievalHits,
+  studentLearningProfileDigest,
   teacherClass: providedTeacherClass
 }: {
   courseId: string;
   retrievalConfidence?: RetrievalConfidence;
   retrievalHits: RetrievalHit[];
+  studentLearningProfileDigest?: string;
   teacherClass?: TeacherClassTutorConfig | null;
 }) {
   const course = courses.find((item) => item.id === courseId);
@@ -82,6 +84,7 @@ export async function buildTutorSystemPrompt({
           teacherClass?.refusalStyle ??
           defaultRefusalStyle,
         sourceUsage: teacherClass?.sourceUsage ?? normalizeSourceUsageSettings(null),
+        studentLearningProfileDigest,
         retrievalInstruction
       }),
       "\nRetrieved course context:",
@@ -103,6 +106,7 @@ export async function buildTutorSystemPrompt({
       refusalStyle: policy.refusalStyle,
       retrievalGuidance: policy.retrievalGuidance,
       sourceUsage: normalizeSourceUsageSettings(null),
+      studentLearningProfileDigest,
       retrievalInstruction
     }),
     "\nRetrieved course context:",
@@ -119,6 +123,7 @@ function buildCoreTutorInstructions({
   refusalStyle,
   retrievalGuidance,
   retrievalInstruction,
+  studentLearningProfileDigest,
   sourceUsage
 }: {
   answerPolicy: AnswerPolicySettings;
@@ -130,6 +135,7 @@ function buildCoreTutorInstructions({
   retrievalGuidance?: string;
   retrievalInstruction: string;
   sourceUsage: SourceUsageSettings;
+  studentLearningProfileDigest?: string;
 }) {
   return [
     "Your goal is to help the student learn, not to simply complete work for them.",
@@ -154,6 +160,7 @@ function buildCoreTutorInstructions({
     "",
     "Tutoring method:",
     ...buildAnswerPolicyInstructions(answerPolicy),
+    ...buildStudentLearningProfileInstructions(studentLearningProfileDigest),
     "",
     "Academic integrity boundaries:",
     ...buildAcademicIntegrityInstructions(answerPolicy),
@@ -183,6 +190,24 @@ function buildCoreTutorInstructions({
     "Style:",
     "- Be warm, calm, and concrete.",
     "- Use LaTeX for math expressions."
+  ];
+}
+
+function buildStudentLearningProfileInstructions(studentLearningProfileDigest?: string) {
+  if (!studentLearningProfileDigest?.trim()) {
+    return [];
+  }
+
+  return [
+    "",
+    "Private student learning profile:",
+    "- This profile is private, teacher-reviewed tutoring context. Do not reveal, quote, summarize, or mention it to the student.",
+    "- Use it only to choose tutoring strategy, adapt pacing, decide whether to ask a guiding question, give an example, use a table, ask for the student's attempt, or check prior steps.",
+    "- Try a strategiesToTryNext item when it fits the current question, and avoid repeating supports marked less effective.",
+    "- The profile is subordinate to teacher policy, academic integrity rules, source-use rules, safety boundaries, and the student's current request.",
+    "- Do not use the profile for grading, discipline, placement, diagnosis, sensitive trait inference, emotion inference, or high-stakes decisions.",
+    "- Do not label the student as lazy, weak, anxious, disabled, unmotivated, or similar.",
+    studentLearningProfileDigest.trim()
   ];
 }
 
