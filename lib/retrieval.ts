@@ -30,6 +30,13 @@ export type CourseRetrievalScope = {
   professorName?: string;
 };
 
+type CachedMaterialDocument = {
+  document: SourceDocument;
+  materialType: string;
+  teacherId: string;
+  title: string;
+};
+
 export async function retrieveCourseContext(
   scope: CourseRetrievalScope,
   query: string,
@@ -38,9 +45,7 @@ export async function retrieveCourseContext(
   options: { materialId?: string } = {}
 ): Promise<CourseRetrievalResult> {
   const { classId, professorId } = normalizeRetrievalScope(scope);
-  const courseId = classId;
-  const staticDocuments = documents.filter((document) => document.courseId === courseId);
-  const staticCandidates = toCandidates(staticDocuments.filter((document) => document.status === "ready"));
+  const staticCandidates = toCandidates(documents.filter((document) => document.courseId === classId));
   const queryEmbedding = await createQueryEmbedding(query);
   const vectorCandidates = queryEmbedding?.values.length
     ? await getVectorMaterialCandidates({
@@ -86,6 +91,10 @@ export async function retrieveCourseContext(
 }
 
 async function createQueryEmbedding(query: string) {
+  if (!query.trim()) {
+    return undefined;
+  }
+
   try {
     return await createVertexEmbedding({
       taskType: "RETRIEVAL_QUERY",
@@ -119,12 +128,6 @@ async function getVectorMaterialCandidates({
   }
 
   try {
-    type CachedMaterialDocument = {
-      document: SourceDocument;
-      materialType: string;
-      teacherId: string;
-      title: string;
-    };
     const materialDocumentCache = new Map<string, Promise<CachedMaterialDocument | null>>();
     const getCachedMaterialDocument = (materialRef: DocumentReference, materialId: string) => {
       const cachedDocument = materialDocumentCache.get(materialRef.path);
@@ -177,6 +180,7 @@ async function getVectorMaterialCandidates({
 
     const candidates = await Promise.all(
       snapshot.docs.map(async (chunkDoc) => {
+        const chunkData = chunkDoc.data();
         const materialRef = chunkDoc.ref.parent.parent;
 
         if (!materialRef) {
@@ -199,12 +203,12 @@ async function getVectorMaterialCandidates({
           return null;
         }
 
-        if (readProfessorId(chunkDoc.data()) !== professorId) {
+        if (readProfessorId(chunkData) !== professorId) {
           return null;
         }
 
         const chunk = normalizeChunk({
-          chunkData: chunkDoc.data(),
+          chunkData,
           chunkId: chunkDoc.id,
           classId,
           materialId: materialRef.id,
@@ -297,11 +301,14 @@ async function getClassMaterialDocuments({
         return null;
       }
 
-      if (!isStudentVisibleReadyMaterial(material) || readProfessorId(material) !== professorId) {
+      const teacherId = readProfessorId(material);
+
+      if (!isStudentVisibleReadyMaterial(material) || teacherId !== professorId) {
         return null;
       }
 
       const chunksSnapshot = await materialDoc.ref.collection("chunks").get();
+      const materialType = materialTypeForKind(String(material.materialType ?? material.kind ?? "notes"));
       const document = normalizeMaterialDocument({
         classId,
         material,
@@ -313,8 +320,8 @@ async function getClassMaterialDocuments({
               chunkId: chunkDoc.id,
               classId,
               materialId: materialDoc.id,
-              materialType: materialTypeForKind(String(material.materialType ?? material.kind ?? "notes")),
-              teacherId: readProfessorId(material),
+              materialType,
+              teacherId,
               title: String(material.title ?? "Uploaded material")
             })
           )

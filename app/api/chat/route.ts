@@ -168,7 +168,7 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
   const reasoningEffort = classModelSettings?.reasoningEffort ?? "medium";
   const studentLearningProfileDigest =
     scope.role === "student"
-      ? await getActiveStudentLearningProfileDigest({
+      ? await getStudentLearningProfileDigestForTutor({
           classId: courseId,
           studentId: scope.uid
         })
@@ -188,7 +188,7 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
     buildPdfToolChoosingTutorSystemPrompt(teacherClass?.sourceUsage, teacherClass?.answerPolicy)
   ].join("\n\n");
 
-  const persistence = await prepareStudentConversationPersistence({
+  const persistence = await prepareStudentConversationPersistenceForTutor({
     conversationId: data.conversationId,
     messages: data.messages,
     modelId: model,
@@ -214,6 +214,52 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
 }
 
 type PreparedBackendChatRequest = Awaited<ReturnType<typeof buildBackendChatRequest>>;
+
+async function getStudentLearningProfileDigestForTutor(input: { classId: string; studentId: string }) {
+  try {
+    return await getActiveStudentLearningProfileDigest(input);
+  } catch (caughtError) {
+    console.error("Student learning profile skipped for tutor chat", JSON.stringify({
+      classId: input.classId,
+      message: errorMessageForLog(caughtError),
+      studentId: input.studentId
+    }));
+    return "";
+  }
+}
+
+async function prepareStudentConversationPersistenceForTutor({
+  conversationId,
+  messages,
+  modelId,
+  scope
+}: {
+  conversationId?: string;
+  messages: ParsedChatRequest["messages"];
+  modelId: string;
+  scope: Awaited<ReturnType<typeof authorizeTutorChatRequest>>;
+}) {
+  try {
+    return await prepareStudentConversationPersistence({
+      conversationId,
+      messages,
+      modelId,
+      scope
+    });
+  } catch (caughtError) {
+    if (caughtError instanceof ConversationPersistenceError) {
+      throw caughtError;
+    }
+
+    console.error("Student conversation persistence skipped before tutor chat", JSON.stringify({
+      classId: scope.classId,
+      conversationId,
+      message: errorMessageForLog(caughtError),
+      studentId: scope.uid
+    }));
+    return null;
+  }
+}
 
 function streamTutorResponse(preparedRequest: PreparedBackendChatRequest) {
   const encoder = new TextEncoder();

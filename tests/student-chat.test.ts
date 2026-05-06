@@ -261,6 +261,17 @@ test("student chat does not drop generated answers when assistant persistence fa
   assert.match(source, /withConversationMetadata\(tutorResponse, preparedRequest\.persistence\)/);
 });
 
+test("student chat does not fail when optional prep data is unavailable", () => {
+  const source = readFileSync(join(repoRoot, "app/api/chat/route.ts"), "utf8");
+
+  assert.match(source, /getStudentLearningProfileDigestForTutor/);
+  assert.match(source, /Student learning profile skipped for tutor chat/);
+  assert.match(source, /prepareStudentConversationPersistenceForTutor/);
+  assert.match(source, /Student conversation persistence skipped before tutor chat/);
+  assert.match(source, /return ""/);
+  assert.match(source, /return null/);
+});
+
 test("pdf tool prompt uses textbook readings for solving help", () => {
   const routeSource = readFileSync(join(repoRoot, "app/api/chat/route.ts"), "utf8");
   const promptSource = readFileSync(join(repoRoot, "lib/prompts.ts"), "utf8");
