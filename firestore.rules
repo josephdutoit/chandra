@@ -290,6 +290,16 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      match /studentLearningProfiles/{profileId} {
+        allow read: if isTargetClassTeacher(classId);
+        allow write: if false;
+
+        match /revisions/{revisionId} {
+          allow read: if isTargetClassTeacher(classId);
+          allow write: if false;
+        }
+      }
+
       match /conversations/{conversationId} {
         allow get, list: if isTargetClassTeacher(classId)
           || (

@@ -2574,6 +2574,134 @@ button.student-row[aria-pressed="true"] {
   font-size: 0.78rem;
 }
 
+.learning-profile-card {
+  display: grid;
+  gap: 12px;
+}
+
+.learning-profile-status,
+.learning-profile-empty {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.learning-profile-heading-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.learning-profile-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.learning-profile-counts span {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.learning-profile-status-note {
+  margin: 0;
+  border: 1px solid #cde7e3;
+  border-radius: 8px;
+  background: #f2fbf9;
+  padding: 8px 10px;
+  color: #075b60;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.learning-profile-view-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.learning-profile-view-tabs button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.learning-profile-view-tabs button[aria-pressed="true"] {
+  border-color: #0f766e;
+  background: #eef8f6;
+  color: #075b60;
+}
+
+.learning-profile-view-tabs button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.learning-profile-content {
+  display: grid;
+  gap: 10px;
+}
+
+.learning-profile-summary {
+  margin: 0;
+  color: #1f2937;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.learning-profile-list {
+  display: grid;
+  gap: 5px;
+}
+
+.learning-profile-list strong {
+  color: #334155;
+  font-size: 0.78rem;
+}
+
+.learning-profile-list ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: #1f2937;
+  font-size: 0.82rem;
+}
+
+.learning-profile-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.learning-profile-actions button,
+.learning-profile-card .student-detail-card-heading button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: #075b60;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.learning-profile-actions button:disabled,
+.learning-profile-card .student-detail-card-heading button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
 .student-quick-actions {
   display: grid;
   gap: 10px;

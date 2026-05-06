@@ -11,6 +11,7 @@ import {
 } from "@/lib/class-settings";
 import { defaultOpenRouterModelId } from "@/lib/model-options";
 import { buildTutorSystemPrompt, getTeacherClassTutorConfig, toProviderMessages } from "@/lib/prompts";
+import { getActiveStudentLearningProfileDigest } from "@/lib/student-learning-profiles-server";
 import {
   ConversationPersistenceError,
   prepareStudentConversationPersistence,
@@ -164,6 +165,13 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
   const temperature = creativityToTemperature(classModelSettings?.creativity ?? 35);
   const maxTokens = responseLengthToMaxTokens(classModelSettings?.responseLength ?? "medium");
   const reasoningEffort = classModelSettings?.reasoningEffort ?? "medium";
+  const studentLearningProfileDigest =
+    scope.role === "student"
+      ? await getActiveStudentLearningProfileDigest({
+          classId: courseId,
+          studentId: scope.uid
+        })
+      : "";
 
   if (model === "demo-guided") {
     throw new TutorChatHttpError("Choose a real OpenRouter model for tutor chat.", 400);
@@ -173,6 +181,7 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
     await buildTutorSystemPrompt({
       courseId,
       retrievalHits: [],
+      studentLearningProfileDigest,
       teacherClass
     }),
     buildPdfToolChoosingTutorSystemPrompt(teacherClass?.sourceUsage, teacherClass?.answerPolicy)

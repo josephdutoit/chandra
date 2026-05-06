@@ -172,3 +172,75 @@ export type TutorApiResponse = {
   sources: TutorSource[];
   retrievalConfidence: RetrievalConfidence;
 };
+
+export type StudentLearningProfileConfidence = "low" | "medium" | "high";
+
+export type StudentLearningStrategyStatus =
+  | "try_next"
+  | "currently_testing"
+  | "appears_helpful"
+  | "appears_unhelpful"
+  | "inconclusive"
+  | "retired";
+
+export type StudentLearningEvidenceObservationType =
+  | "learning_signal"
+  | "strategy_helpful"
+  | "strategy_unhelpful"
+  | "improvement"
+  | "open_question";
+
+export type StudentLearningTriedStrategy = {
+  id: string;
+  strategy: string;
+  reasonTried: string;
+  firstTriedAt: string;
+  lastObservedAt: string;
+  status: StudentLearningStrategyStatus;
+  evidenceFor: string[];
+  evidenceAgainst: string[];
+  nextAction: string;
+};
+
+export type StudentLearningEvidence = {
+  conversationId: string;
+  messageId?: string;
+  date?: string;
+  observationType: StudentLearningEvidenceObservationType;
+  note: string;
+};
+
+export type StudentLearningProfileContent = {
+  summary: string;
+  learningSignals: string[];
+  effectiveSupports: string[];
+  lessEffectiveSupports: string[];
+  strategiesToTryNext: string[];
+  avoid: string[];
+  openQuestions: string[];
+  notableImprovements: string[];
+  profileChangeNotes: string[];
+  triedStrategies: StudentLearningTriedStrategy[];
+  evidence: StudentLearningEvidence[];
+};
+
+export type StudentLearningProfileDocument = {
+  id: string;
+  classId: string;
+  studentId: string;
+  studentEmail: string;
+  studentName: string;
+  active: boolean;
+  teacherReviewed: boolean;
+  confidence: StudentLearningProfileConfidence;
+  updatedAt: unknown;
+  lastReviewedAt: unknown;
+  lastUpdateAttemptAt: unknown;
+  lastSuccessfulUpdateAt: unknown;
+  pendingConversationCount: number;
+  pendingStudentMessageCount: number;
+  minimumConversationsForUpdate: number;
+  minimumStudentMessagesForUpdate: number;
+  activeProfile?: StudentLearningProfileContent | null;
+  draftProfile?: StudentLearningProfileContent | null;
+};
