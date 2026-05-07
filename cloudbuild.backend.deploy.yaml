@@ -4,6 +4,9 @@ substitutions:
   _REPOSITORY: chandra
   _SERVICE_ACCOUNT: chandra-backend@chandra-f6e13.iam.gserviceaccount.com
 
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
