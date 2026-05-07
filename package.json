@@ -5,8 +5,10 @@
   "description": "Teacher-guided AI learning platform for classrooms.",
   "scripts": {
     "dev": "next dev",
+    "dev:all": "node scripts/start-dev.mjs",
     "dev:web": "next dev",
-    "dev:api": "uvicorn backend.main:app --reload --port 8000",
+    "dev:api": "python3 -m uvicorn backend.main:app --host 127.0.0.1 --port 8000",
+    "setup:run": "node scripts/setup-and-run.mjs",
     "build": "next build",
     "start": "next start",
     "eval:retrieval:live": "node --env-file=.env.local --experimental-strip-types scripts/live-retrieval-eval.mjs",

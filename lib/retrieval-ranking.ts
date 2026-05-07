@@ -156,9 +156,10 @@ export function problemNumbersFromText(text: string) {
   const normalized = text.toLowerCase();
   const matches = new Set<string>();
   const patterns = [
-    /\b(?:problem|question|number|no\.?)\s*#?\s*(\d{1,3}[a-z]?)\b/g,
+    /\b(?:problem|question|exercise|exercises|ex\.?|number|no\.?)\s*#?\s*(\d{1,3}(?:\.\d{1,3})?[a-z]?)\b/g,
     /(?:^|[\s([{])#\s*(\d{1,3}[a-z]?)\b/g,
-    /\bq\s*(\d{1,3}[a-z]?)\b/g
+    /\bq\s*(\d{1,3}[a-z]?)\b/g,
+    /(?:^|[\s([{])(\d{1,3}\.\d{1,3}[a-z]?)\s*[\).]/g
   ];
 
   for (const pattern of patterns) {
@@ -170,6 +171,11 @@ export function problemNumbersFromText(text: string) {
   }
 
   return [...matches];
+}
+
+export function hasExactLookupSignal(query: string) {
+  const queryFeatures = getQueryFeatures(query);
+  return queryFeatures.exactLookupIntent;
 }
 
 export function materialTypeForKind(kind: string) {
@@ -301,6 +307,10 @@ function scoreCandidate(
   const matchedProblemNumber = findMatchedProblemNumber(queryFeatures.problemNumbers, candidate.problemNumberSet);
   const problemNumberScore = matchedProblemNumber ? 1 : 0;
   const pageNumberScore = scorePageNumbers(candidate.chunk, queryFeatures.pageNumbers);
+  const numberedItemContextScore =
+    queryFeatures.numberedItemLookupIntent && hasNumberedItemContext(candidate.searchableText, candidate.materialType)
+      ? 1
+      : 0;
   const sourceHintScore = scoreSourceHint(candidate, queryFeatures.sourceHints, candidate.documentTitle);
   const assignmentBoost =
     queryFeatures.looksLikeAssignmentProblem &&
@@ -320,8 +330,9 @@ function scoreCandidate(
       chunkTextScore +
       exactPhraseScore * 8 +
       equationOverlapScore * 6 +
-      problemNumberScore * 10 +
+      problemNumberScore * 14 +
       pageNumberScore * 12 +
+      numberedItemContextScore * 4 +
       sourceHintScore +
       assignmentBoost +
       priorityBoost
@@ -377,6 +388,11 @@ function getQueryFeatures(query: string, queryVector?: number[], sourceHints: Re
   const equationTokens = extractEquationTokens(query);
   const exactLookupIntent =
     Boolean(problemNumbers.length || pageNumbers.length || exactPhrases.length || equationTokens.length >= 2);
+  const numberedItemLookupIntent =
+    Boolean(problemNumbers.length) ||
+    /\b(?:exercise|exercises|ex\.?|problem|problems|question|questions|number|no\.?|practice|worksheet|assignment)\b/i.test(
+      query
+    );
 
   return {
     equationTokens,
@@ -390,8 +406,19 @@ function getQueryFeatures(query: string, queryVector?: number[], sourceHints: Re
     terms,
     embeddingVector: queryVector,
     lexicalVector: buildTextVectorFromTerms(terms),
+    numberedItemLookupIntent,
     sourceHints: normalizeSourceHints(sourceHints)
   };
+}
+
+function hasNumberedItemContext(searchableText: string, materialType: string) {
+  return (
+    materialType === "assignment" ||
+    materialType === "practice-problems" ||
+    /\b(?:exercise|exercises|ex|problem|problems|question|questions|practice|worksheet|assignment|homework)\b/.test(
+      searchableText
+    )
+  );
 }
 
 function normalizeSourceHints(sourceHints: RetrievalSourceHint[]) {

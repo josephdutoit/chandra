@@ -11,7 +11,12 @@ from agent.openrouter_client import OpenRouterClient, encode_file_as_data_url
 from agent.state import PdfRagState
 from agent.tools import SEARCH_PDF_PAGES_TOOL, parse_search_pdf_pages_arguments, search_pdf_pages
 from retrieval.pdf_page_assets import MAX_TOTAL_PAGES, fetch_or_render_pdf_pages
-from retrieval.pdf_retriever import PdfRetriever
+from retrieval.pdf_retriever import (
+    PdfRetriever,
+    page_numbers_from_text,
+    problem_numbers_from_text,
+    section_markers_from_text,
+)
 
 MAX_TOOL_CALLS = 8
 MAX_PARALLEL_SEARCHES = 3
@@ -53,9 +58,9 @@ def build_pdf_rag_graph(
             not tool_calls
             and not state.get("retrieved_pages")
             and state.get("tool_call_count", 0) == 0
-            and should_force_exact_problem_search(state)
         ):
-            tool_calls = [forced_exact_problem_search_tool_call(state)]
+            forced_tool_call = forced_initial_search_tool_call(state)
+            tool_calls = [forced_tool_call] if forced_tool_call else []
 
         return {
             "answer": response.get("content") or "",
@@ -65,7 +70,7 @@ def build_pdf_rag_graph(
         }
 
     async def search_pdf_pages_node(state: PdfRagState) -> dict[str, Any]:
-        new_search_queries, new_pages = await execute_search_tool_calls(
+        new_search_queries, new_pages, new_diagnostics = await execute_search_tool_calls(
             state,
             state.get("tool_calls", []),
             retriever=retriever,
@@ -81,6 +86,7 @@ def build_pdf_rag_graph(
             "sources": sources_from_pages(retrieved_pages),
             "stage_history": append_stage(state, "search_pdf_pages"),
             "search_queries": [*state.get("search_queries", []), *new_search_queries],
+            "retrieval_diagnostics": [*state.get("retrieval_diagnostics", []), *new_diagnostics],
             "tool_calls": [],
         }
 
@@ -187,10 +193,11 @@ async def execute_search_tool_calls(
     retriever: PdfRetriever | None,
     class_id: str | None,
     professor_id: str | None,
-) -> tuple[list[str], list[dict[str, Any]]]:
+) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
     parsed_searches = parse_search_tool_call_batch(state, tool_calls)
     return await execute_parsed_searches(
         parsed_searches,
+        state=state,
         retriever=retriever,
         class_id=class_id,
         professor_id=professor_id,
@@ -211,13 +218,14 @@ def parse_search_tool_call_batch(
 async def execute_parsed_searches(
     parsed_searches: list[tuple[str, int]],
     *,
+    state: PdfRagState | None = None,
     retriever: PdfRetriever | None,
     class_id: str | None,
     professor_id: str | None,
-) -> tuple[list[str], list[dict[str, Any]]]:
+) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
 
     if not parsed_searches:
-        return [], []
+        return [], [], []
 
     results = await asyncio.gather(
         *[
@@ -232,7 +240,235 @@ async def execute_parsed_searches(
         ]
     )
     pages = [page for search_result in results for page in search_result]
-    return [query for query, _top_k in parsed_searches], pages
+    diagnostics = search_result_diagnostics(parsed_searches, results, state=state)
+    return [query for query, _top_k in parsed_searches], pages, diagnostics
+
+
+def search_result_diagnostics(
+    parsed_searches: list[tuple[str, int]],
+    result_batches: list[list[dict[str, Any]]],
+    *,
+    state: PdfRagState | None = None,
+) -> list[dict[str, Any]]:
+    latest_message = latest_student_message_content(state.get("messages", [])) if state else ""
+    diagnostics: list[dict[str, Any]] = []
+
+    for (query, _top_k), pages in zip(parsed_searches, result_batches):
+        diagnostic = diagnose_search_result(query, pages, latest_message)
+
+        if diagnostic:
+            diagnostics.append(diagnostic)
+
+    return diagnostics
+
+
+def diagnose_search_result(
+    query: str,
+    pages: list[dict[str, Any]],
+    latest_student_message: str = "",
+) -> dict[str, Any] | None:
+    context_markers = requested_context_markers(query)
+
+    if not pages:
+        return retrieval_diagnostic(
+            query,
+            "no matching pages found",
+            "No PDF page windows matched this query.",
+            suggested_next_query(query, latest_student_message, "no matching pages found", context_markers),
+        )
+
+    if context_markers and not pages_match_requested_context(context_markers, pages):
+        return retrieval_diagnostic(
+            query,
+            "wrong section/title",
+            "Selected pages do not match the requested section, worksheet, or title marker.",
+            suggested_next_query(query, latest_student_message, "wrong section/title", context_markers),
+        )
+
+    has_problem_page = any(page_looks_like_problem_source(page) for page in pages)
+    has_method_page = any(page_looks_like_method_source(page) for page in pages)
+
+    if query_has_method_intent(query) and has_problem_page and not has_method_page:
+        return retrieval_diagnostic(
+            query,
+            "found problem page only, missing method",
+            "Selected pages locate or list the problem, but do not provide method support.",
+            suggested_next_query(query, latest_student_message, "found problem page only, missing method", context_markers),
+        )
+
+    if query_has_exact_problem_intent(query) and has_method_page and not pages_include_exact_problem_match(query, pages):
+        return retrieval_diagnostic(
+            query,
+            "found textbook method, missing exact problem",
+            "Selected pages explain a method, but do not locate the exact requested problem.",
+            suggested_next_query(query, latest_student_message, "found textbook method, missing exact problem", context_markers),
+        )
+
+    return None
+
+
+def retrieval_diagnostic(query: str, issue: str, reason: str, suggested_query: str) -> dict[str, Any]:
+    return {
+        "issue": issue,
+        "query": query,
+        "reason": reason,
+        "suggested_next_query": suggested_query,
+    }
+
+
+def query_has_method_intent(query: str) -> bool:
+    normalized = normalize_search_query(query)
+    return bool(
+        re.search(
+            (
+                r"\b(?:help|solve|method|formula|theorem|definition|rule|example|worked|substitution|"
+                r"derivative|differentiate|integral|limit|sqrt|square root|textbook|reading|notes)\b"
+            ),
+            normalized,
+        )
+    )
+
+
+def query_has_exact_problem_intent(query: str) -> bool:
+    normalized = normalize_search_query(query)
+    return bool(
+        problem_numbers_from_text(query)
+        or page_numbers_from_text(query)
+        or re.search(
+            (
+                r"\b(?:find|where|locate|identify|which|exact|problem|question|exercise|worksheet|"
+                r"homework|assignment|practice|page|number)\b"
+            ),
+            normalized,
+        )
+    )
+
+
+def page_looks_like_problem_source(page: dict[str, Any]) -> bool:
+    text = page_diagnostic_text(page)
+    return bool(
+        re.search(
+            r"\b(?:homework|worksheet|assignment|problem set|practice problems|practice problem|problem pdf|quiz|exam)\b",
+            text,
+        )
+        or re.search(r"\b(?:problem|exercise|question)\s+\d{1,3}[a-z]?\b", text)
+    )
+
+
+def page_looks_like_method_source(page: dict[str, Any]) -> bool:
+    text = page_diagnostic_text(page)
+
+    if page_looks_like_problem_source(page) and not re.search(r"\b(?:textbook|reading|readings|notes|lecture)\b", text):
+        return False
+
+    return bool(
+        re.search(
+            r"\b(?:textbook|reading|readings|chapter|notes|lecture|worked example|example|definition|theorem|formula|method|rule)\b",
+            text,
+        )
+    )
+
+
+def pages_include_exact_problem_match(query: str, pages: list[dict[str, Any]]) -> bool:
+    query_problem_numbers = problem_numbers_from_text(query)
+    query_page_numbers = page_numbers_from_text(query)
+
+    for page in pages:
+        if query_page_numbers and any(
+            int(page.get("page_start") or 0)
+            <= page_number
+            <= int(page.get("page_end") or page.get("page_start") or 0)
+            for page_number in query_page_numbers
+        ):
+            return True
+
+        if query_problem_numbers and query_problem_numbers.intersection(
+            problem_numbers_from_text(page_raw_diagnostic_text(page))
+        ):
+            return True
+
+        if not query_problem_numbers and not query_page_numbers and page_looks_like_problem_source(page):
+            return True
+
+    return False
+
+
+def requested_context_markers(query: str) -> list[str]:
+    patterns = [
+        r"\b(?:section|sec\.?|sect\.?)\s+\d+(?:\.\d+)*[a-z]?\b",
+        r"\b(?:chapter|ch\.?)\s+\d+(?:\.\d+)*[a-z]?\b",
+        r"\bworksheet\s+\d+[a-z]?\b",
+        r"\bhomework\s+\d+[a-z]?\b",
+        r"\bassignment\s+\d+[a-z]?\b",
+        r"\bproblem\s+set\s+\d+[a-z]?\b",
+        r"\bquiz\s+\d+[a-z]?\b",
+        r"\bexam\s+\d+[a-z]?\b",
+    ]
+    lowered_query = query.lower()
+    markers: list[str] = []
+
+    for pattern in patterns:
+        markers.extend(match.group(0) for match in re.finditer(pattern, lowered_query))
+
+    return markers
+
+
+def pages_match_requested_context(markers: list[str], pages: list[dict[str, Any]]) -> bool:
+    combined_text = normalize_search_query(" ".join(page_raw_diagnostic_text(page) for page in pages))
+    return any(normalize_search_query(marker) in combined_text for marker in markers)
+
+
+def suggested_next_query(
+    query: str,
+    latest_student_message: str,
+    issue: str,
+    context_markers: list[str],
+) -> str:
+    base_terms = compact_search_query_terms(" ".join([latest_student_message, query]))
+    marker_terms = compact_search_query_terms(" ".join(context_markers), max_length=80)
+
+    if issue == "found problem page only, missing method":
+        return compact_search_query_terms(
+            f"textbook reading notes worked example method formula {marker_terms} {base_terms}"
+        )
+
+    if issue == "found textbook method, missing exact problem":
+        return compact_search_query_terms(
+            f"find exact problem homework worksheet assignment practice problems {marker_terms} {base_terms}"
+        )
+
+    if issue == "wrong section/title":
+        return compact_search_query_terms(f"find requested section title page {marker_terms} {base_terms}")
+
+    return compact_search_query_terms(f"alternate wording class PDF {marker_terms} {base_terms}")
+
+
+def compact_search_query_terms(text: str, *, max_length: int = 220) -> str:
+    compacted = re.sub(r"\s+", " ", text).strip()
+
+    if len(compacted) <= max_length:
+        return compacted
+
+    return compacted[:max_length].rsplit(" ", 1)[0].strip()
+
+
+def page_diagnostic_text(page: dict[str, Any]) -> str:
+    return normalize_search_query(page_raw_diagnostic_text(page))
+
+
+def page_raw_diagnostic_text(page: dict[str, Any]) -> str:
+    return " ".join(
+        str(page.get(field) or "")
+        for field in (
+            "title",
+            "material_type",
+            "materialType",
+            "section",
+            "chunk_text",
+            "chunkText",
+            "content",
+        )
+    )
 
 
 def remaining_search_call_count(state: PdfRagState) -> int:
@@ -319,6 +555,36 @@ def should_force_exact_problem_search(state: PdfRagState) -> bool:
     return looks_like_concrete_math_problem(latest_message)
 
 
+def should_force_textbook_section_search(state: PdfRagState) -> bool:
+    source_usage = state.get("source_usage")
+
+    if isinstance(source_usage, dict) and source_usage.get("useClassMaterialsFirst") is False:
+        return False
+
+    latest_message = latest_student_message_content(state.get("messages", []))
+    if not latest_message or not section_markers_from_text(latest_message):
+        return False
+
+    normalized = normalize_search_query(latest_message)
+    if re.search(
+        r"\b(?:homework|worksheet|assignment|problem set|quiz|exam|practice problems|practice problem)\b",
+        normalized,
+    ):
+        return False
+
+    return bool(re.search(r"\b(?:textbook|reading|readings|chapter|section|sec|sect)\b", normalized))
+
+
+def forced_initial_search_tool_call(state: PdfRagState) -> dict[str, Any] | None:
+    if should_force_exact_problem_search(state):
+        return forced_exact_problem_search_tool_call(state)
+
+    if should_force_textbook_section_search(state):
+        return forced_textbook_section_search_tool_call(state)
+
+    return None
+
+
 def latest_student_message_content(messages: list[dict[str, Any]]) -> str:
     for message in reversed(messages):
         if message.get("role") not in {"user", "student"}:
@@ -388,6 +654,31 @@ def forced_exact_problem_search_query(message: str) -> str:
     ).strip()
 
 
+def forced_textbook_section_search_tool_call(state: PdfRagState) -> dict[str, Any]:
+    query = forced_textbook_section_search_query(latest_student_message_content(state.get("messages", [])))
+    return {
+        "id": "forced_textbook_section_search",
+        "type": "function",
+        "function": {
+            "name": "search_pdf_pages",
+            "arguments": json.dumps(
+                {
+                    "query": query,
+                    "student_reason": "Finding textbook section reading pages",
+                }
+            ),
+        },
+    }
+
+
+def forced_textbook_section_search_query(message: str) -> str:
+    compact_message = re.sub(r"\s+", " ", message).strip()
+    if len(compact_message) > 260:
+        compact_message = compact_message[:260].rsplit(" ", 1)[0].strip()
+
+    return f"find textbook reading section chapter pages {compact_message}".strip()
+
+
 def build_multimodal_final_messages(state: PdfRagState) -> list[dict[str, Any]]:
     """Build the multimodal answer/search-again call with only selected page assets."""
 
@@ -413,17 +704,32 @@ def build_multimodal_final_messages(state: PdfRagState) -> list[dict[str, Any]]:
         "searches_used": state.get("tool_call_count", 0),
         "max_searches": MAX_TOOL_CALLS,
         "previous_search_queries": state.get("search_queries", []),
+        "retrieval_diagnostics": state.get("retrieval_diagnostics", []),
+        "suggested_next_queries": [
+            diagnostic.get("suggested_next_query")
+            for diagnostic in state.get("retrieval_diagnostics", [])
+            if diagnostic.get("suggested_next_query")
+        ],
     }
     content: list[dict[str, Any]] = [
         {
             "type": "text",
             "text": (
                 "Use only the selected PDF pages below. "
-                "If they answer the student, give a concise source-backed reply. "
+                "If they answer the student, give a source-backed reply with enough detail for the requested response length. "
                 "If they are insufficient or mismatched, call search_pdf_pages again with a genuinely new, sharper query. "
                 "If multiple distinct gaps remain, you may call search_pdf_pages up to 3 times at once for complementary angles. "
                 "Each search_pdf_pages call must include student_reason with exactly five words explaining why that query helps. "
                 "Never repeat a previous query or minor wording variant. "
+                "Use retrieval_diagnostics to repair weak searches: if pages only located a problem, search textbook/readings/notes/worked examples for the method; "
+                "if pages were textbook-only for a locator request, search homework/worksheet/assignment/practice-problem PDFs for the exact problem; "
+                "if the section or title was wrong, include the requested section/title marker plus alternate wording. "
+                "When writing a smarter next query, keep stable identifiers, page/problem numbers, titles, and distinctive math terms; "
+                "expand common notation with words such as sqrt/square root, int/integral, derivative/differentiate, and lim/limit; drop filler. "
+                "For textbook section or chapter requests, first make sure selected pages come from the requested generic textbook/reading section marker, "
+                "not a worksheet that merely mentions the same number. If the requested section/chapter is missing or mismatched, search again with "
+                "`textbook reading`, the exact section/chapter marker, and the topic words; do not assume a specific textbook title. "
+                "When selected pages include multiple windows from the same requested section, synthesize across those pages before answering. "
                 "If the student only asks where a problem is, locate it only; do not ask a follow-up and do not also search for method pages. "
                 "If the student only asks to find, identify, or locate a problem, answer with the problem set/assignment location only. "
                 f"{final_direct_answer_instruction(answer_policy)} "
@@ -433,12 +739,19 @@ def build_multimodal_final_messages(state: PdfRagState) -> list[dict[str, Any]]:
                 "For conceptual method questions, use selected textbook/readings/examples to teach the recognition pattern in the class wording. "
                 f"{final_citation_instruction(source_usage)} "
                 f"{final_example_boundary_instruction(answer_policy)} "
+                "When a student gives a calculation, answer, or conclusion, verify it before affirming it. If it is incorrect, point out the first wrong step or value and continue from the corrected idea. "
                 "Give scaffolded help, not a full solution: do not state the next move outright; ask a targeted question or give a small hint that helps the student find it. "
                 f"{final_unclear_source_instruction(source_usage)} "
                 "When printed_page_start is present, use it as the document page number because it was read from the selected PDF page. "
                 "page_start/page_end are only internal render indexes. "
                 "For problem-location answers, use this shape: `$integral$ is Problem N in Section X, on printed page P of Title.` "
                 "Do not restate an integral the student already supplied more than once; use at most one math block. "
+                "Use optional labels only when they match the student's intent: `Hint:` for stuck/start requests, "
+                "`Why this works:` for concept/why requests, `Formula:` for formula requests, `Example:` only for similar examples, "
+                "and `Check your work:` only when the student shows work. "
+                "Do not write `Answer:`, `Question:`, `Next step:`, `Your next step:`, `Source:`, or `Sources:`. "
+                "For simple greetings or check-ins, reply naturally in one short chat message and ask what course problem or concept the student wants to work on; do not frame it as a next-step tutoring move. "
+                "Usually use no more than two optional labeled sections, then end with one direct question. "
                 "Use `$...$` or `$$...$$`; do not use `\\(...\\)`, `\\[...\\]`, or plain bracketed math. "
                 "Do not use unrelated pages or outside knowledge.\n\n"
                 f"Selected page metadata:\n{json.dumps(selected_context, indent=2)}"
@@ -491,6 +804,9 @@ def normalize_source_usage_state(value: Any) -> dict[str, bool]:
         "askClarificationIfSourceUnclear": source.get("askClarificationIfSourceUnclear")
         if isinstance(source.get("askClarificationIfSourceUnclear"), bool)
         else True,
+        "quoteSourcePassages": source.get("quoteSourcePassages")
+        if isinstance(source.get("quoteSourcePassages"), bool)
+        else True,
     }
 
 
@@ -509,10 +825,18 @@ def final_direct_answer_instruction(answer_policy: dict[str, bool]) -> str:
 
 
 def final_citation_instruction(source_usage: dict[str, bool]) -> str:
+    if source_usage["quoteSourcePassages"]:
+        citation_phrase = "with source/page context" if source_usage["citeSourcePages"] else "with source context when available"
+        return (
+            "When you give solving help or method teaching, or handle passage lookup, use the selected textbook/readings/examples pages directly. "
+            f"If the student asks to pull up, read, or quote a specific selected class-material passage, quote the relevant passage exactly {citation_phrase}, then explain or paraphrase it. "
+            "Do not refuse on generic copyright grounds for selected class materials, and do not invent missing words."
+        )
+
     if source_usage["citeSourcePages"]:
         return (
             "When you give solving help or method teaching, use the selected textbook/readings/examples pages directly. "
-            "Include one short quote of 20 words or fewer from the selected textbook example when a relevant quote is available, then paraphrase the idea."
+            "Include at most one short quote of 20 words or fewer from the selected textbook example when useful, then paraphrase the idea."
         )
 
     return (
@@ -727,13 +1051,17 @@ def remove_problem_restatement(answer: str) -> str:
 
 
 def remove_problem_location_followup(answer: str) -> str:
-    if not re.search(r"\bproblem\s+\d+\b", answer, flags=re.IGNORECASE):
+    if not re.search(
+        r"\b(?:problem|exercise|question)\s+#?\s*\d{1,4}(?:\.\d{1,4})?[a-z]?\b",
+        answer,
+        flags=re.IGNORECASE,
+    ):
         return answer
 
-    if not re.search(r"\b(?:section|page)\b", answer, flags=re.IGNORECASE):
+    if not re.search(r"\b(?:chapter|section|page|printed\s+page)\b", answer, flags=re.IGNORECASE):
         return answer
 
-    answer = re.sub(r"\s*You can find it [^.]*\.\s*", " ", answer, flags=re.IGNORECASE).strip()
+    answer = re.sub(r"\s*You can find it .*?(?:(?<!\d)\.(?!\d)|$)\s*", " ", answer, flags=re.IGNORECASE).strip()
     return re.sub(r"\s*Would you like help[^?]*\?\s*$", "", answer, flags=re.IGNORECASE).strip()
 
 
@@ -823,25 +1151,12 @@ async def run_pdf_rag_agent(
                 "professor_name": professor_name,
                 "sources": [],
                 "retrieval_confidence": "low",
+                "retrieval_diagnostics": [],
             },
             {"recursion_limit": 40},
         )
         answer = answer_or_page_fallback(final_state)
-        sources = sources_for_answer(final_state, answer)
-
-        return {
-            "content": answer,
-            "langGraphTrace": {
-                "searchQueries": final_state.get("search_queries") or [],
-                "selectedPages": selected_page_trace(final_state.get("page_assets", [])),
-                "stages": final_state.get("stage_history") or [],
-                "finishReason": final_state.get("finish_reason") or "",
-                "toolCallCount": final_state.get("tool_call_count") or 0,
-            },
-            "message": answer,
-            "sources": sources,
-            "retrievalConfidence": final_state.get("retrieval_confidence") or "low",
-        }
+        return pdf_rag_response_from_state(final_state, answer=answer)
     finally:
         await close_owned_openrouter_client(client, owns_client)
 
@@ -888,6 +1203,7 @@ async def run_pdf_rag_agent_stream(
         "professor_name": professor_name,
         "sources": [],
         "retrieval_confidence": "low",
+        "retrieval_diagnostics": [],
     }
 
     try:
@@ -916,9 +1232,9 @@ async def run_pdf_rag_agent_stream(
             not state["tool_calls"]
             and not state.get("retrieved_pages")
             and state.get("tool_call_count", 0) == 0
-            and should_force_exact_problem_search(state)
         ):
-            state["tool_calls"] = [forced_exact_problem_search_tool_call(state)]
+            forced_tool_call = forced_initial_search_tool_call(state)
+            state["tool_calls"] = [forced_tool_call] if forced_tool_call else []
 
         if not state["tool_calls"]:
             yield {"payload": pdf_rag_response_from_state(state), "type": "final"}
@@ -952,8 +1268,9 @@ async def run_pdf_rag_agent_stream(
                 "stage": "searching_pages",
                 "type": "search_batch",
             }
-            _queries, new_pages = await execute_parsed_searches(
+            _queries, new_pages, new_diagnostics = await execute_parsed_searches(
                 parsed_searches,
+                state=state,
                 retriever=retriever,
                 class_id=class_id,
                 professor_id=professor_id,
@@ -965,6 +1282,7 @@ async def run_pdf_rag_agent_stream(
             state["sources"] = sources_from_pages(state["retrieved_pages"])
             state["stage_history"] = append_stage(state, "search_pdf_pages")
             state["search_queries"] = [*state.get("search_queries", []), *new_search_queries]
+            state["retrieval_diagnostics"] = [*state.get("retrieval_diagnostics", []), *new_diagnostics]
             state["tool_calls"] = []
 
             yield {
@@ -1018,9 +1336,10 @@ async def run_pdf_rag_agent_stream(
         await close_owned_openrouter_client(client, owns_client)
 
 
-def pdf_rag_response_from_state(state: PdfRagState) -> dict[str, Any]:
-    answer = answer_or_page_fallback(state)
+def pdf_rag_response_from_state(state: PdfRagState, answer: str | None = None) -> dict[str, Any]:
+    answer = answer if answer is not None else answer_or_page_fallback(state)
     sources = sources_for_answer(state, answer)
+    retrieval_confidence = normalize_retrieval_confidence(state.get("retrieval_confidence"))
 
     return {
         "content": answer,
@@ -1030,11 +1349,356 @@ def pdf_rag_response_from_state(state: PdfRagState) -> dict[str, Any]:
             "stages": state.get("stage_history") or [],
             "finishReason": state.get("finish_reason") or "",
             "toolCallCount": state.get("tool_call_count") or 0,
+            "retrievalDiagnostics": state.get("retrieval_diagnostics") or [],
         },
         "message": answer,
         "sources": sources,
-        "retrievalConfidence": state.get("retrieval_confidence") or "low",
+        "structuredOutput": structured_tutor_output_from_answer(answer, state, sources),
+        "retrievalConfidence": retrieval_confidence,
     }
+
+
+def structured_tutor_output_from_answer(
+    answer: str,
+    state: PdfRagState,
+    sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_confidence = normalize_retrieval_confidence(state.get("retrieval_confidence"))
+    answer_text = normalize_wrapped_reference_numbers((answer or "").strip())
+    direct_refusal = is_direct_answer_refusal(answer_text)
+    paste_request = asks_for_pasted_problem_or_source(answer_text)
+    next_question = extract_final_next_step(answer_text)
+    structured_answer = answer_text
+
+    if next_question:
+        candidate_answer = remove_final_next_step(answer_text, next_question) or answer_text
+        if is_short_greeting_answer(candidate_answer):
+            next_question = ""
+        else:
+            structured_answer = candidate_answer
+
+    hint = extract_labeled_section(structured_answer, ["hint", "small hint"])
+    explanation = extract_labeled_section(structured_answer, ["why this works", "explanation"])
+    formula = extract_labeled_section(structured_answer, ["formula", "formulas"])
+    example = extract_labeled_section(structured_answer, ["example", "similar example"])
+    check_work = extract_labeled_section(structured_answer, ["check your work", "check work"])
+
+    hint_level = infer_hint_level(answer_text, direct_refusal)
+    mode = infer_tutor_mode(answer_text, direct_refusal, paste_request, bool(sources), next_question)
+    student_action_needed = infer_student_action_needed(
+        answer_text,
+        direct_refusal=direct_refusal,
+        paste_request=paste_request,
+        sources_used=bool(sources),
+        next_question=next_question,
+    )
+
+    optional_section_labels = [
+        "hint",
+        "small hint",
+        "why this works",
+        "explanation",
+        "formula",
+        "formulas",
+        "example",
+        "similar example",
+        "check your work",
+        "check work",
+        "next step",
+        "your next step",
+        "question",
+    ]
+    section_answer = remove_labeled_sections(structured_answer, optional_section_labels)
+    has_optional_sections = any([hint, explanation, formula, example, check_work, next_question])
+    if not section_answer and not has_optional_sections:
+        section_answer = structured_answer
+    sections: dict[str, str] = {
+        "answer": section_answer,
+    }
+
+    if hint:
+        sections["hint"] = hint
+
+    if explanation:
+        sections["explanation"] = explanation
+
+    if formula:
+        sections["formula"] = formula
+
+    if example:
+        sections["example"] = example
+
+    if check_work:
+        sections["checkWork"] = check_work
+
+    if next_question:
+        sections["nextStep"] = next_question
+
+    return {
+        "sections": sections,
+        "metadata": {
+            "hintLevel": hint_level,
+            "sourceConfidence": source_confidence,
+            "studentActionNeeded": student_action_needed,
+            "mode": mode,
+        },
+    }
+
+
+def normalize_retrieval_confidence(value: Any) -> str:
+    return value if value in {"high", "medium", "low"} else "low"
+
+
+def is_direct_answer_refusal(answer: str) -> bool:
+    normalized = answer.lower().replace("\u2019", "'")
+    return bool(
+        re.search(r"\b(can't|cannot|won't|will not)\s+(just\s+)?give\s+(you\s+)?(the\s+)?(final\s+)?answer\b", normalized)
+        or re.search(r"\b(can't|cannot|won't|will not)\s+provide\s+(the\s+)?(final\s+)?answer\b", normalized)
+        or re.search(r"\bi\s+(can't|cannot|won't|will not)\s+solve\s+(your|the)\s+exact\s+problem\b", normalized)
+    )
+
+
+def asks_for_pasted_problem_or_source(answer: str) -> bool:
+    normalized = answer.lower()
+    return bool(
+        re.search(r"\bpaste\s+(the\s+)?(exact\s+)?(problem|question|source|text|worksheet)\b", normalized)
+        or re.search(r"\bsend\s+(the\s+)?(exact\s+)?(problem|question|source|text|worksheet)\b", normalized)
+        or re.search(r"\bshare\s+(the\s+)?(exact\s+)?(problem|question|source|text|worksheet|page)\b", normalized)
+    )
+
+
+def extract_final_next_step(answer: str) -> str:
+    trimmed = answer.strip()
+    labeled = extract_final_labeled_next_step(trimmed)
+    if labeled:
+        return labeled
+
+    if not trimmed.endswith("?"):
+        return ""
+
+    question_start = final_question_start(trimmed)
+    if question_start is None:
+        return ""
+
+    question = clean_next_step_text(trimmed[question_start:])
+    if len(question) < 8 or len(question) > 260:
+        return ""
+
+    if not looks_like_unlabeled_next_step_question(question):
+        return ""
+
+    preceding = trimmed[:question_start].strip()
+    return question if preceding else ""
+
+
+def final_question_start(answer: str) -> int | None:
+    index = len(answer) - 2
+
+    while index >= 0:
+        character = answer[index]
+
+        if character in "!?":
+            return index + 1
+
+        if character == "\n":
+            candidate = clean_next_step_text(answer[index + 1 :])
+            if looks_like_unlabeled_next_step_question(candidate):
+                return index + 1
+
+        if character == "." and not period_is_inside_final_question(answer, index):
+            return index + 1
+
+        index -= 1
+
+    return 0
+
+
+def period_is_inside_final_question(answer: str, index: int) -> bool:
+    previous_character = answer[index - 1] if index > 0 else ""
+    next_character = answer[index + 1] if index + 1 < len(answer) else ""
+    next_non_space_character_match = re.search(r"\S", answer[index + 1 :])
+    next_non_space_character = next_non_space_character_match.group(0) if next_non_space_character_match else ""
+
+    if previous_character.isdigit() and (next_character.isdigit() or next_non_space_character.isdigit()):
+        return True
+
+    prefix = answer[: index + 1]
+    abbreviation_match = re.search(r"\b([A-Za-z]{1,4})\.$", prefix)
+    if not abbreviation_match:
+        return False
+
+    return abbreviation_match.group(1).lower() in {"ch", "ex", "fig", "no", "p", "pg", "pp", "q", "sec"}
+
+
+def extract_final_labeled_next_step(answer: str) -> str:
+    match = re.search(
+        r"(?:^|\n|(?<=[.!?])\s+)(?:\*\*)?\s*(?:your\s+next\s+step|next\s+step|question)(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.{6,260}?)\s*$",
+        answer.strip(),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return clean_next_step_text(match.group(1)) if match else ""
+
+
+def remove_final_next_step(answer: str, next_step: str) -> str:
+    labeled_pattern = (
+        r"(?:^|\n|(?<=[.!?])\s+)(?:\*\*)?\s*(?:your\s+next\s+step|next\s+step|question)(?:\*\*)?\s*:\s*"
+        r"(?:\*\*)?\s*.{6,260}?\s*$"
+    )
+    without_label = re.sub(labeled_pattern, "", answer.strip(), flags=re.IGNORECASE | re.DOTALL).strip()
+
+    if without_label != answer.strip():
+        return without_label
+
+    if answer.strip().endswith(next_step):
+        trimmed_answer = answer.strip()[: -len(next_step)].strip()
+        return re.sub(r"[\s\.\!\?]+$", "", trimmed_answer).strip()
+
+    return answer.strip()
+
+
+def clean_next_step_text(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    return re.sub(
+        r"^(?:\*\*)?\s*(?:your\s+next\s+step|next\s+step|question)(?:\*\*)?\s*:\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+
+
+def looks_like_unlabeled_next_step_question(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+
+    if stripped[0].islower() or stripped[0].isdigit():
+        return False
+
+    return True
+
+
+def normalize_wrapped_reference_numbers(answer: str) -> str:
+    return re.sub(
+        r"\b(Example|Exercise|Section|Definition|Theorem|Lemma|Corollary)\s+(\d+(?:\.\d+)*)\.?\s*\n\s*(\d+\b)(?!\s*[\).])",
+        lambda match: f"{match.group(1)} {match.group(2)}.{match.group(3)}",
+        answer,
+        flags=re.IGNORECASE,
+    )
+
+
+def is_short_greeting_answer(answer: str) -> bool:
+    if re.search(r"(\\|=|\d|\+|-|\*|/|\^|_)", answer):
+        return False
+
+    words = re.findall(r"[A-Za-z']+", answer)
+    if not words or len(words) > 4 or words[0].lower().strip("'") not in {"hi", "hello", "hey"}:
+        return False
+
+    return all(word.lower().strip("'") in {"there", "again", "student"} or word[:1].isupper() for word in words[1:])
+
+
+def extract_labeled_section(answer: str, labels: list[str]) -> str:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    match = re.search(
+        rf"(?:^|\n|(?<=[.!?])\s+)(?:\*\*)?(?:{label_pattern})(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+?)(?=(?:\n|(?<=[.!?])\s+)\s*(?:\*\*)?[A-Z][A-Za-z ]{{2,32}}(?:\*\*)?\s*:|\Z)",
+        answer,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return clean_labeled_section_text(match.group(1)) if match else ""
+
+
+def remove_labeled_sections(answer: str, labels: list[str]) -> str:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    return re.sub(
+        rf"(?:^|\n|(?<=[.!?])\s+)(?:\*\*)?(?:{label_pattern})(?:\*\*)?\s*:\s*(?:\*\*)?\s*.+?(?=(?:\n|(?<=[.!?])\s+)\s*(?:\*\*)?[A-Z][A-Za-z ]{{2,32}}(?:\*\*)?\s*:|\Z)",
+        "\n",
+        answer,
+        flags=re.IGNORECASE | re.DOTALL,
+    ).strip()
+
+
+def clean_labeled_section_text(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text).replace("**", "").strip()
+    if re.search(r"(\\|=|<|>|\^|_)", cleaned):
+        cleaned = cleaned.rstrip(".")
+    return cleaned.strip()
+
+
+def infer_hint_level(answer: str, direct_refusal: bool) -> str:
+    if direct_refusal:
+        return "refusal"
+
+    normalized = answer.lower()
+    if re.search(r"\bworked example\b|\bsimilar example\b|\bsimilar problem\b|\bexample problem\b|\bexample\s*:", normalized):
+        return "worked_example"
+
+    if re.search(r"\bsmall hint\b|\bhint\b", normalized):
+        return "small_hint"
+
+    return "guided_step"
+
+
+def infer_tutor_mode(
+    answer: str,
+    direct_refusal: bool,
+    paste_request: bool,
+    sources_used: bool,
+    next_question: str,
+) -> str:
+    if direct_refusal:
+        return "direct_answer_refusal"
+
+    normalized = answer.lower()
+    if paste_request:
+        return "clarification"
+
+    if re.search(r"\boff[- ]topic\b|\bcourse material\b|\bclass material\b", normalized):
+        return "off_topic_redirect"
+
+    if re.search(r"\bcheck (your|my) work\b|\byour work\b", normalized):
+        return "check_work"
+
+    if re.search(r"\bexam\b|\bquiz\b|\breview\b", normalized):
+        return "exam_review"
+
+    if sources_used and re.search(r"\bsource\b|\bpage\b|\bworksheet\b|\btextbook\b|\bsection\b|\bproblem\s+\d+\b", normalized):
+        return "source_lookup"
+
+    if next_question and len(answer.strip()) <= 320:
+        return "socratic"
+
+    return "guided_problem_solving"
+
+
+def infer_student_action_needed(
+    answer: str,
+    *,
+    direct_refusal: bool,
+    paste_request: bool,
+    sources_used: bool,
+    next_question: str,
+) -> str:
+    normalized = answer.lower()
+
+    if paste_request:
+        return "paste_problem"
+
+    if direct_refusal or re.search(r"\b(show|send|share)\s+(your\s+)?(attempt|work|next step)\b", normalized):
+        return "show_attempt"
+
+    if re.search(r"\bask (your )?teacher\b|\bcheck with (your )?teacher\b", normalized):
+        return "ask_teacher"
+
+    if sources_used and re.search(r"\b(review|read|check|look at|open)\s+(the\s+)?(source|page|worksheet|textbook|section)\b", normalized):
+        return "review_source"
+
+    if sources_used:
+        return "try_next_step"
+
+    if next_question:
+        return "answer_question"
+
+    return "try_next_step"
 
 
 def selected_page_trace(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:

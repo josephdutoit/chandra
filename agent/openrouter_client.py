@@ -4,6 +4,7 @@ import asyncio
 import base64
 import mimetypes
 import os
+import ssl
 from pathlib import Path
 from typing import Any
 
@@ -76,10 +77,9 @@ class OpenRouterClient:
         }
 
     async def _post_chat_completion(self, payload: dict[str, Any]) -> httpx.Response:
-        client = self._get_http_client()
-
         for attempt in range(self.max_retries + 1):
             try:
+                client = self._get_http_client()
                 return await client.post(
                     f"{self.base_url}/chat/completions",
                     headers={
@@ -90,7 +90,9 @@ class OpenRouterClient:
                     },
                     json=payload,
                 )
-            except (httpx.TransportError, httpx.TimeoutException) as error:
+            except (httpx.TransportError, httpx.TimeoutException, ssl.SSLError) as error:
+                await self.aclose()
+
                 if attempt >= self.max_retries:
                     raise RuntimeError(
                         "The model provider connection dropped while Chandra was generating the answer. "
@@ -108,7 +110,7 @@ class OpenRouterClient:
         return self._client
 
     async def aclose(self) -> None:
-        if self._client is not None:
+        if self._client is not None and hasattr(self._client, "aclose"):
             await self._client.aclose()
             self._client = None
 

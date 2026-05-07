@@ -7,8 +7,6 @@ import {
 
 export const runtime = "nodejs";
 
-const maxUploadBytes = 12 * 1024 * 1024;
-
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
@@ -23,10 +21,6 @@ export async function POST(request: Request) {
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Upload a material file." }, { status: 400 });
-    }
-
-    if (file.size > maxUploadBytes) {
-      return NextResponse.json({ error: "Files must be 12 MB or smaller." }, { status: 400 });
     }
 
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");

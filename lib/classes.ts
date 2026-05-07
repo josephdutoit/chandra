@@ -13,19 +13,16 @@ import {
   updateDoc,
   where
 } from "firebase/firestore";
+import { apiUrl } from "./api-client";
 import { generateClassCode } from "./class-code";
 import {
-  defaultAnswerPolicySettings,
-  defaultAssignmentContext,
-  defaultClassModelSettings,
-  defaultRefusalStyle,
-  defaultSourceUsageSettings,
   type AnswerPolicySettings,
   type ClassModelSettings,
+  type ResponseFormatSettings,
   type SourceUsageSettings,
   type TutorBehavior
 } from "./class-settings";
-import { db, isFirebaseConfigured } from "./firebase";
+import { auth, db, isFirebaseConfigured } from "./firebase";
 import type { TutorKnowledgeKind, TutorKnowledgeSourceMode } from "./tutor-knowledge";
 import type { TutorKnowledgePriority } from "./types";
 
@@ -44,6 +41,7 @@ export type TeacherClass = {
   defaultAssignmentContext?: string;
   modelSettings?: ClassModelSettings;
   refusalStyle?: string;
+  responseFormat?: ResponseFormatSettings;
   sourceUsage?: SourceUsageSettings;
   createdAt?: unknown;
 };
@@ -207,30 +205,30 @@ export async function createTeacherClass({
 }) {
   assertFirestoreReady();
 
-  const classCode = await createUniqueClassCode();
-  const classReference = doc(db!, "classes", classCode);
+  if (!auth?.currentUser || auth.currentUser.uid !== teacherId) {
+    throw new Error("Sign in as the class teacher to create a class.");
+  }
 
-  await setDoc(classReference, {
-    name: name.trim(),
-    section: section.trim(),
-    teacherId,
-    teacherName,
-    joinCode: classCode,
-    behaviorTitle: "Guided problem solving",
-    answerPolicy: defaultAnswerPolicySettings,
-    behaviorInstructions: [
-      "Ask students to explain their thinking before giving hints.",
-      "Do not provide final answers unless the student has already shown the main reasoning.",
-      "Use course materials before generic explanations when relevant."
-    ].join("\n"),
-    defaultAssignmentContext,
-    modelSettings: defaultClassModelSettings,
-    refusalStyle: defaultRefusalStyle,
-    sourceUsage: defaultSourceUsageSettings,
-    createdAt: serverTimestamp()
+  const token = await auth.currentUser.getIdToken();
+  const response = await fetch(apiUrl("/api/classes"), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      name,
+      section,
+      teacherName
+    })
   });
+  const data = (await response.json()) as { class?: { id?: string }; error?: string };
 
-  return classReference;
+  if (!response.ok) {
+    throw new Error(data.error ?? "Class creation failed.");
+  }
+
+  return { id: data.class?.id ?? "" };
 }
 
 export async function ensureClassJoinCode(classId: string) {
@@ -264,6 +262,7 @@ export async function updateTeacherClassSettings({
   modelSettings,
   name,
   refusalStyle,
+  responseFormat,
   section,
   sourceUsage
 }: {
@@ -275,6 +274,7 @@ export async function updateTeacherClassSettings({
   modelSettings: ClassModelSettings;
   name: string;
   refusalStyle: string;
+  responseFormat: ResponseFormatSettings;
   section: string;
   sourceUsage: SourceUsageSettings;
 }) {
@@ -288,6 +288,7 @@ export async function updateTeacherClassSettings({
     modelSettings,
     name: name.trim(),
     refusalStyle: refusalStyle.trim(),
+    responseFormat,
     section: section.trim(),
     sourceUsage
   });

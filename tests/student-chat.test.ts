@@ -3,8 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { buildChatRetrievalQuery, getLatestStudentQuestion, getRecentSourceHints } from "../lib/chat-retrieval-query.ts";
+import {
+  buildLearningStrategyTelemetry,
+  inferLearningStrategyObservedOutcome,
+  stripTeacherOnlyTutorResponseFields
+} from "../lib/learning-strategy-telemetry.ts";
 import { assistantContentWithSources } from "../lib/provider-source-context.ts";
 import { resolveStudentChatClassId, StudentChatScopeError } from "../lib/student-chat-scope.ts";
+import { normalizeTutorResponse } from "../lib/tutor-response.ts";
 
 const repoRoot = process.cwd();
 
@@ -124,10 +130,87 @@ test("teacher roster can open a student's saved conversations", () => {
   assert.match(messageRouteSource, /listTeacherConversationMessages/);
 });
 
+test("teacher class conversations endpoint loads the review inbox", () => {
+  const teacherSource = readFileSync(join(repoRoot, "components/TeacherClassManager.tsx"), "utf8");
+  const routeSource = readFileSync(join(repoRoot, "app/api/classes/[classId]/conversations/route.ts"), "utf8");
+  const persistenceSource = readFileSync(join(repoRoot, "lib/student-conversations-server.ts"), "utf8");
+
+  assert.match(routeSource, /authorizeClassTeacher\(request, classId\)/);
+  assert.match(routeSource, /listTeacherClassConversations\(\{ classId \}\)/);
+  assert.match(routeSource, /metrics/);
+  assert.match(persistenceSource, /export async function listTeacherClassConversations/);
+  assert.match(persistenceSource, /collection\("conversationReviews"\)/);
+  assert.match(persistenceSource, /getConversationSourceAudit/);
+  assert.match(teacherSource, /\/api\/classes\/\$\{encodeURIComponent\(activeClassId\)\}\/conversations/);
+  assert.match(teacherSource, /setClassConversations\(data\.conversations \?\? \[\]\)/);
+});
+
+test("teacher conversation review PATCH stores teacher-only metadata", () => {
+  const routeSource = readFileSync(
+    join(repoRoot, "app/api/classes/[classId]/conversations/[conversationId]/review/route.ts"),
+    "utf8"
+  );
+  const persistenceSource = readFileSync(join(repoRoot, "lib/student-conversations-server.ts"), "utf8");
+  const teacherSource = readFileSync(join(repoRoot, "components/TeacherClassManager.tsx"), "utf8");
+
+  assert.match(routeSource, /authorizeClassTeacher\(request, classId\)/);
+  assert.match(routeSource, /privateNote: String\(data\.privateNote \?\? ""\)\.slice\(0, 1000\)/);
+  assert.match(routeSource, /updateTeacherConversationReview/);
+  assert.match(persistenceSource, /export async function updateTeacherConversationReview/);
+  assert.match(persistenceSource, /collection\("conversationReviews"\)\s*\.doc\(conversationId\)/);
+  assert.match(persistenceSource, /privateNote: privateNote\.slice\(0, maxTeacherReviewNoteLength\)/);
+  assert.match(teacherSource, /saveConversationReview/);
+  assert.match(teacherSource, /\/review`/);
+});
+
+test("private conversation review data is not written to student-readable conversation docs", () => {
+  const persistenceSource = readFileSync(join(repoRoot, "lib/student-conversations-server.ts"), "utf8");
+  const createConversationStart = persistenceSource.indexOf("async function createOrVerifyStudentConversation");
+  const createConversationEnd = persistenceSource.indexOf("async function verifyStudentConversation");
+  const createConversationSource = persistenceSource.slice(createConversationStart, createConversationEnd);
+
+  assert.match(persistenceSource, /collection\("conversationReviews"\)/);
+  assert.doesNotMatch(createConversationSource, /privateNote|reviewStatus|conversationReviews/);
+});
+
+test("teacher transcript messages include retrieval confidence", () => {
+  const persistenceSource = readFileSync(join(repoRoot, "lib/student-conversations-server.ts"), "utf8");
+  const messageRouteSource = readFileSync(
+    join(repoRoot, "app/api/classes/[classId]/conversations/[conversationId]/messages/route.ts"),
+    "utf8"
+  );
+  const typesSource = readFileSync(join(repoRoot, "lib/types.ts"), "utf8");
+
+  assert.match(typesSource, /retrievalConfidence\?: RetrievalConfidence/);
+  assert.match(persistenceSource, /retrievalConfidence: normalizeRetrievalConfidence\(data\.retrievalConfidence\)/);
+  assert.match(messageRouteSource, /listTeacherConversationMessages/);
+});
+
+test("teacher roster active status uses Firebase presence and combines activity columns", () => {
+  const teacherSource = readFileSync(join(repoRoot, "components/TeacherClassManager.tsx"), "utf8");
+  const authSource = readFileSync(join(repoRoot, "lib/auth.ts"), "utf8");
+  const serverSource = readFileSync(join(repoRoot, "lib/student-conversations-server.ts"), "utf8");
+  const styles = readFileSync(join(repoRoot, "app/styles.css"), "utf8");
+
+  assert.match(authSource, /startUserPresenceHeartbeat/);
+  assert.match(authSource, /doc\(db, "userPresence", user\.uid\)/);
+  assert.match(authSource, /safelyWriteUserPresence/);
+  assert.match(authSource, /console\.warn\("User presence update failed\."/);
+  assert.doesNotMatch(authSource, /\{ merge: true \}/);
+  assert.match(serverSource, /collection\("userPresence"\)/);
+  assert.match(serverSource, /presence\?\.isOnline \? "active"/);
+  assert.doesNotMatch(serverSource, /activity\.questionsToday > 0 \? "active"/);
+  assert.match(teacherSource, /<span>Activity<\/span>/);
+  assert.doesNotMatch(teacherSource, /<span>Status<\/span>\s*<span>Last active<\/span>/);
+  assert.match(teacherSource, /roster-activity-cell/);
+  assert.match(styles, /\.roster-activity-cell/);
+});
+
 test("conversation Firestore rules are class-scoped and server-write-only", () => {
   const rules = readFileSync(join(repoRoot, "firestore.rules"), "utf8");
 
   assert.match(rules, /match \/conversations\/\{conversationId\}/);
+  assert.match(rules, /match \/conversationReviews\/\{conversationId\}/);
   assert.match(rules, /isTargetClassTeacher\(classId\)/);
   assert.match(rules, /resource\.data\.studentId == request\.auth\.uid/);
   assert.match(rules, /match \/messages\/\{messageId\}/);
@@ -144,6 +227,238 @@ test("source labels render under tutor messages", () => {
   assert.match(styles, /\.message-sources/);
 });
 
+test("student chat response normalization preserves structured output", () => {
+  const response = normalizeTutorResponse({
+    content: "Use substitution first. What expression should u equal?",
+    retrievalConfidence: "high",
+    sources: [],
+    structuredOutput: {
+      sections: {
+        answer: "Use substitution first.",
+        nextStep: "What expression should u equal?"
+      },
+      metadata: {
+        hintLevel: "guided_step",
+        mode: "guided_problem_solving",
+        sourceConfidence: "high",
+        studentActionNeeded: "try_next_step"
+      }
+    }
+  });
+
+  assert.equal(response.message, "Use substitution first. What expression should u equal?");
+  assert.equal(response.content, "Use substitution first. What expression should u equal?");
+  assert.deepEqual(response.structuredOutput, {
+    sections: {
+      answer: "Use substitution first.",
+      nextStep: "What expression should u equal?"
+    },
+    metadata: {
+      hintLevel: "guided_step",
+      mode: "guided_problem_solving",
+      sourceConfidence: "high",
+      studentActionNeeded: "try_next_step"
+    }
+  });
+});
+
+test("student chat response normalization converts old flat structured output", () => {
+  const response = normalizeTutorResponse({
+    content: "Use substitution first. What expression should u equal?",
+    retrievalConfidence: "high",
+    sources: [],
+    structuredOutput: {
+      answer: "Use substitution first.",
+      hintLevel: "guided_step",
+      mode: "guided_problem_solving",
+      nextQuestion: "What expression should u equal?",
+      sourceConfidence: "high",
+      studentActionNeeded: "try_next_step"
+    } as never
+  });
+
+  assert.deepEqual(response.structuredOutput, {
+    sections: {
+      answer: "Use substitution first.",
+      nextStep: "What expression should u equal?"
+    },
+    metadata: {
+      hintLevel: "guided_step",
+      mode: "guided_problem_solving",
+      sourceConfidence: "high",
+      studentActionNeeded: "try_next_step"
+    }
+  });
+});
+
+test("student chat response normalization preserves empty structured answer", () => {
+  const response = normalizeTutorResponse({
+    content: "Hint: Use the vector-space operations.\n\nYour next step: What is the addition operation?",
+    retrievalConfidence: "low",
+    sources: [],
+    structuredOutput: {
+      sections: {
+        answer: "",
+        hint: "Use the vector-space operations.",
+        nextStep: "What is the addition operation?"
+      },
+      metadata: {
+        hintLevel: "guided_step",
+        mode: "guided_problem_solving",
+        sourceConfidence: "low",
+        studentActionNeeded: "try_next_step"
+      }
+    }
+  });
+
+  assert.deepEqual(response.structuredOutput?.sections, {
+    answer: "",
+    hint: "Use the vector-space operations.",
+    nextStep: "What is the addition operation?"
+  });
+});
+
+test("student chat response normalization repairs split decimal example next step", () => {
+  const response = normalizeTutorResponse({
+    content:
+      "Would you like to try Example 2.4\n1 together, starting with how to build the first column of the transition matrix?",
+    retrievalConfidence: "low",
+    sources: [],
+    structuredOutput: {
+      sections: {
+        answer: "Would you like to try Example 2.4",
+        nextStep: "1 together, starting with how to build the first column of the transition matrix?"
+      },
+      metadata: {
+        hintLevel: "guided_step",
+        mode: "guided_problem_solving",
+        sourceConfidence: "low",
+        studentActionNeeded: "try_next_step"
+      }
+    }
+  });
+
+  assert.deepEqual(response.structuredOutput?.sections, {
+    answer: "Would you like to try Example 2.4.1 together, starting with how to build the first column of the transition matrix?"
+  });
+});
+
+test("student assistant renderer falls back for old messages without structured output", () => {
+  const source = readFileSync(join(repoRoot, "app/student/page.tsx"), "utf8");
+
+  assert.match(source, /assistantMessageAnswerContent\(message\)/);
+  assert.match(source, /return message\.structuredOutput \? message\.structuredOutput\.sections\.answer : message\.content/);
+  assert.match(source, /assistantMessageAnswerContent\(message\) \? \(/);
+  assert.match(source, /assistantStructuredSections\(message\)/);
+  assert.match(source, /Your next step/);
+  assert.doesNotMatch(source, /hintLevel|studentActionNeeded|sourceConfidence/);
+});
+
+test("tutor prompt keeps simple greetings as natural chat replies", () => {
+  const promptSource = readFileSync(join(repoRoot, "lib/prompts.ts"), "utf8");
+  const backendSource = readFileSync(join(repoRoot, "backend/main.py"), "utf8");
+  const graphSource = readFileSync(join(repoRoot, "agent/graph.py"), "utf8");
+
+  assert.match(promptSource, /For simple greetings or check-ins/);
+  assert.match(backendSource, /For simple greetings or check-ins/);
+  assert.match(graphSource, /For simple greetings or check-ins/);
+  assert.match(promptSource, /do not format that as a next-step tutoring move/);
+});
+
+test("active profile context creates teacher-only learning strategy telemetry", () => {
+  const telemetry = buildLearningStrategyTelemetry({
+    profileContext: {
+      digest: "Try next: quick table before equations",
+      strategies: [{ label: "quick table before equations", source: "strategiesToTryNext" }]
+    },
+    response: normalizeTutorResponse({
+      content: "Let's make a quick table before choosing the equations. What should the first row show?",
+      retrievalConfidence: "low",
+      sources: []
+    })
+  });
+
+  assert.equal(telemetry.profileUsed, true);
+  assert.equal(telemetry.selectedStrategy, "quick table before equations");
+  assert.equal(telemetry.tutorMove, "ask_guiding_question");
+  assert.equal(telemetry.expectedStudentAction, "answer_question");
+});
+
+test("missing active profile context records profileUsed false without strategy details", () => {
+  const telemetry = buildLearningStrategyTelemetry({
+    profileContext: { digest: "", strategies: [] },
+    response: normalizeTutorResponse({
+      content: "Try the next algebra step and tell me what you get.",
+      retrievalConfidence: "low",
+      sources: []
+    })
+  });
+
+  assert.equal(telemetry.profileUsed, false);
+  assert.equal(telemetry.selectedStrategy, undefined);
+});
+
+test("structured tutor output maps to learning strategy tutor move and expected action", () => {
+  const telemetry = buildLearningStrategyTelemetry({
+    profileContext: {
+      digest: "Try next: ask for visible work",
+      strategies: []
+    },
+    response: normalizeTutorResponse({
+      content: "Your first line is close. Show the next step you would revise.",
+      retrievalConfidence: "low",
+      sources: [],
+      structuredOutput: {
+        sections: {
+          answer: "Your first line is close."
+        },
+        metadata: {
+          hintLevel: "guided_step",
+          mode: "check_work",
+          sourceConfidence: "low",
+          studentActionNeeded: "show_attempt"
+        }
+      }
+    })
+  });
+
+  assert.equal(telemetry.tutorMove, "check_work");
+  assert.equal(telemetry.expectedStudentAction, "show_work");
+});
+
+test("learning strategy telemetry is stripped from student-facing tutor responses", () => {
+  const response = normalizeTutorResponse({
+    content: "Try one step.",
+    retrievalConfidence: "low",
+    sources: []
+  });
+  const teacherTelemetryResponse = {
+    ...response,
+    learningStrategyTelemetry: buildLearningStrategyTelemetry({
+      profileContext: { digest: "Try next: ask a guiding question", strategies: [] },
+      response
+    })
+  };
+  const studentSource = readFileSync(join(repoRoot, "app/student/page.tsx"), "utf8");
+  const persistenceSource = readFileSync(join(repoRoot, "lib/student-conversations-server.ts"), "utf8");
+
+  assert.equal(stripTeacherOnlyTutorResponseFields(teacherTelemetryResponse).learningStrategyTelemetry, undefined);
+  assert.match(persistenceSource, /learningStrategyTelemetry: response\.learningStrategyTelemetry/);
+  assert.match(persistenceSource, /learningStrategyTelemetry:\s*message\.role === "assistant"/);
+  assert.doesNotMatch(studentSource, /learningStrategyTelemetry/);
+});
+
+test("student follow-up attempts classify prior learning strategy outcome as progressed", () => {
+  assert.equal(
+    inferLearningStrategyObservedOutcome("I tried substituting u = x^2 + 1, then du = 2x dx."),
+    "student_progressed"
+  );
+});
+
+test("repeated answer-only follow-up classifies prior learning strategy outcome as still stuck", () => {
+  assert.equal(inferLearningStrategyObservedOutcome("just give me the answer"), "student_still_stuck");
+});
+
 test("student chat math can overflow horizontally without hiding the rest of the answer", () => {
   const styles = readFileSync(join(repoRoot, "app/styles.css"), "utf8");
 
@@ -151,6 +466,18 @@ test("student chat math can overflow horizontally without hiding the rest of the
   assert.match(styles, /overflow-x: auto/);
   assert.match(styles, /\.assistant-message-bubble \.katex/);
   assert.match(styles, /\.assistant-message-bubble \.katex-display/);
+});
+
+test("student composer textarea grows with typed lines up to a capped height", () => {
+  const studentSource = readFileSync(join(repoRoot, "app/student/page.tsx"), "utf8");
+  const styles = readFileSync(join(repoRoot, "app/styles.css"), "utf8");
+
+  assert.match(studentSource, /draftTextareaRef/);
+  assert.match(studentSource, /scrollHeight/);
+  assert.match(studentSource, /studentComposerTextareaMaxHeight = 156/);
+  assert.match(styles, /\.student-composer textarea\s*\{[^}]*max-height: 156px/s);
+  assert.match(styles, /\.student-composer textarea\s*\{[^}]*resize: none/s);
+  assert.match(styles, /\.student-composer textarea\s*\{[^}]*overflow-y: hidden/s);
 });
 
 test("chat retrieval query carries recent conversation context into follow-ups", () => {
@@ -246,9 +573,11 @@ test("student chat errors include stable codes and student-safe messages", () =>
 test("student chat response length settings leave room for math-heavy examples", () => {
   const source = readFileSync(join(repoRoot, "lib/class-settings.ts"), "utf8");
 
-  assert.match(source, /return 700/);
-  assert.match(source, /return 1600/);
-  assert.match(source, /return 2600/);
+  assert.match(source, /return 900/);
+  assert.match(source, /return 2200/);
+  assert.match(source, /return 4200/);
+  assert.match(source, /return 7000/);
+  assert.match(source, /"extended"/);
 });
 
 test("student chat does not drop generated answers when assistant persistence fails", () => {
@@ -261,6 +590,17 @@ test("student chat does not drop generated answers when assistant persistence fa
   assert.match(source, /withConversationMetadata\(tutorResponse, preparedRequest\.persistence\)/);
 });
 
+test("student chat does not fail when optional prep data is unavailable", () => {
+  const source = readFileSync(join(repoRoot, "app/api/chat/route.ts"), "utf8");
+
+  assert.match(source, /getStudentLearningProfileContextForTutor/);
+  assert.match(source, /Student learning profile skipped for tutor chat/);
+  assert.match(source, /prepareStudentConversationPersistenceForTutor/);
+  assert.match(source, /Student conversation persistence skipped before tutor chat/);
+  assert.match(source, /emptyLearningStrategyProfileContext\(\)/);
+  assert.match(source, /return null/);
+});
+
 test("pdf tool prompt uses textbook readings for solving help", () => {
   const routeSource = readFileSync(join(repoRoot, "app/api/chat/route.ts"), "utf8");
   const promptSource = readFileSync(join(repoRoot, "lib/prompts.ts"), "utf8");
@@ -269,17 +609,31 @@ test("pdf tool prompt uses textbook readings for solving help", () => {
   assert.match(routeSource, /Do not search textbook\/readings unless no problem-set match is found/);
   assert.match(routeSource, /concrete math problem, including a fully pasted problem/);
   assert.match(routeSource, /Check problem PDFs, worksheets, assignments, practice problems, and textbook sections before helping/);
+  assert.match(routeSource, /textbook section or chapter/);
+  assert.match(routeSource, /do not assume a particular textbook title/);
+  assert.match(routeSource, /query generically with `textbook reading`/);
   assert.match(routeSource, /use the tool first to check whether the exact problem appears in class materials/);
   assert.match(routeSource, /prefer queries that target the reading or method/);
   assert.match(routeSource, /Do not repeat the exact problem\/source search/);
   assert.match(routeSource, /use those pages and do not search again/);
   assert.match(routeSource, /do not solve their exact problem/);
   assert.match(routeSource, /similar textbook\/readings\/example problem/);
+  assert.match(routeSource, /verify it before affirming it/);
+  assert.match(promptSource, /verify it before affirming it/);
   assert.match(routeSource, /relationships, family conflict, emotional support, unrelated coding/);
   assert.match(routeSource, /Briefly redirect those to course material/);
-  assert.match(routeSource, /include one short quote of 20 words or fewer/);
+  assert.match(routeSource, /quote the relevant passage exactly/);
+  assert.match(routeSource, /generic copyright grounds/);
+  assert.match(promptSource, /quoteSourcePassages/);
   assert.match(routeSource, /For conceptual method questions such as when to use a technique/);
   assert.match(routeSource, /For solving help and method teaching/);
+  assert.match(routeSource, /Use fewer sections whenever the answer is clear without them/);
+  assert.match(routeSource, /Choose optional sections from the student's intent/);
+  assert.match(routeSource, /Use `Hint:` when the student is stuck or asks how to start/);
+  assert.match(routeSource, /Use `Check your work:` only when the student shows work/);
+  assert.match(routeSource, /Use at most two optional labeled sections/);
+  assert.match(routeSource, /Do not write `Source:`, `Sources:`, or `Based on selected class material`/);
+  assert.match(routeSource, /Do not write `Answer:`, `Question:`/);
   assert.match(promptSource, /Do not continue solving their exact problem/);
   assert.match(promptSource, /similar textbook\/readings\/example problem/);
   assert.match(promptSource, /Only help with this class/);
@@ -287,6 +641,8 @@ test("pdf tool prompt uses textbook readings for solving help", () => {
   assert.match(promptSource, /search the problem PDF first/);
   assert.match(promptSource, /concrete math problem the student asks about, including fully pasted problems/);
   assert.match(promptSource, /Check whether it appears in uploaded problem PDFs/);
+  assert.match(promptSource, /search generically with textbook\/reading/);
+  assert.match(promptSource, /from any indexed textbook\/reading/);
   assert.match(promptSource, /Do not only point the student to pages/);
   assert.match(promptSource, /method teaching/);
   assert.match(promptSource, /search textbook\/readings\/examples so the explanation can use the class wording/);

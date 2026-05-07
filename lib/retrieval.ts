@@ -2,6 +2,7 @@ import { adminDb } from "./firebase-admin";
 import type { DocumentReference } from "firebase-admin/firestore";
 import {
   createSourceMetadata,
+  hasExactLookupSignal,
   materialTypeForKind,
   problemNumbersFromText,
   rankMaterialChunks
@@ -30,6 +31,13 @@ export type CourseRetrievalScope = {
   professorName?: string;
 };
 
+type CachedMaterialDocument = {
+  document: SourceDocument;
+  materialType: string;
+  teacherId: string;
+  title: string;
+};
+
 export async function retrieveCourseContext(
   scope: CourseRetrievalScope,
   query: string,
@@ -38,10 +46,9 @@ export async function retrieveCourseContext(
   options: { materialId?: string } = {}
 ): Promise<CourseRetrievalResult> {
   const { classId, professorId } = normalizeRetrievalScope(scope);
-  const courseId = classId;
-  const staticDocuments = documents.filter((document) => document.courseId === courseId);
-  const staticCandidates = toCandidates(staticDocuments.filter((document) => document.status === "ready"));
+  const staticCandidates = toCandidates(documents.filter((document) => document.courseId === classId));
   const queryEmbedding = await createQueryEmbedding(query);
+  const shouldIncludeKeywordCandidates = hasExactLookupSignal(query) || Boolean(options.materialId);
   const vectorCandidates = queryEmbedding?.values.length
     ? await getVectorMaterialCandidates({
         classId,
@@ -51,19 +58,25 @@ export async function retrieveCourseContext(
         queryVector: queryEmbedding.values
       })
     : [];
+  let classDocuments: SourceDocument[] | null = null;
+
+  if (vectorCandidates.length && shouldIncludeKeywordCandidates) {
+    classDocuments = await getClassMaterialDocuments({ classId, materialId: options.materialId, professorId });
+  }
+
+  const keywordCandidates = classDocuments ? toCandidates(classDocuments) : [];
   let ranked = vectorCandidates.length
     ? rankMaterialChunks({
-        candidates: [...staticCandidates, ...vectorCandidates],
+        candidates: deduplicateCandidates([...staticCandidates, ...vectorCandidates, ...keywordCandidates]),
         limit,
         query,
         queryVector: queryEmbedding?.values,
         sourceHints
       })
     : null;
-  let classDocuments: SourceDocument[] | null = null;
 
   if (!ranked || !ranked.hits.length) {
-    classDocuments = await getClassMaterialDocuments({ classId, materialId: options.materialId, professorId });
+    classDocuments ??= await getClassMaterialDocuments({ classId, materialId: options.materialId, professorId });
     ranked = rankMaterialChunks({
       candidates: [...staticCandidates, ...toCandidates(classDocuments)],
       limit,
@@ -86,6 +99,10 @@ export async function retrieveCourseContext(
 }
 
 async function createQueryEmbedding(query: string) {
+  if (!query.trim()) {
+    return undefined;
+  }
+
   try {
     return await createVertexEmbedding({
       taskType: "RETRIEVAL_QUERY",
@@ -119,12 +136,6 @@ async function getVectorMaterialCandidates({
   }
 
   try {
-    type CachedMaterialDocument = {
-      document: SourceDocument;
-      materialType: string;
-      teacherId: string;
-      title: string;
-    };
     const materialDocumentCache = new Map<string, Promise<CachedMaterialDocument | null>>();
     const getCachedMaterialDocument = (materialRef: DocumentReference, materialId: string) => {
       const cachedDocument = materialDocumentCache.get(materialRef.path);
@@ -177,6 +188,7 @@ async function getVectorMaterialCandidates({
 
     const candidates = await Promise.all(
       snapshot.docs.map(async (chunkDoc) => {
+        const chunkData = chunkDoc.data();
         const materialRef = chunkDoc.ref.parent.parent;
 
         if (!materialRef) {
@@ -199,12 +211,12 @@ async function getVectorMaterialCandidates({
           return null;
         }
 
-        if (readProfessorId(chunkDoc.data()) !== professorId) {
+        if (readProfessorId(chunkData) !== professorId) {
           return null;
         }
 
         const chunk = normalizeChunk({
-          chunkData: chunkDoc.data(),
+          chunkData,
           chunkId: chunkDoc.id,
           classId,
           materialId: materialRef.id,
@@ -247,6 +259,21 @@ function toCandidates(sourceDocuments: SourceDocument[]) {
         document
       }))
     );
+}
+
+function deduplicateCandidates(candidates: ReturnType<typeof toCandidates>) {
+  const seen = new Set<string>();
+
+  return candidates.filter((candidate) => {
+    const key = [candidate.document.id, candidate.chunk.id].join(":");
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function hasReadyChunks(sourceDocuments: SourceDocument[]) {
@@ -297,11 +324,14 @@ async function getClassMaterialDocuments({
         return null;
       }
 
-      if (!isStudentVisibleReadyMaterial(material) || readProfessorId(material) !== professorId) {
+      const teacherId = readProfessorId(material);
+
+      if (!isStudentVisibleReadyMaterial(material) || teacherId !== professorId) {
         return null;
       }
 
       const chunksSnapshot = await materialDoc.ref.collection("chunks").get();
+      const materialType = materialTypeForKind(String(material.materialType ?? material.kind ?? "notes"));
       const document = normalizeMaterialDocument({
         classId,
         material,
@@ -313,8 +343,8 @@ async function getClassMaterialDocuments({
               chunkId: chunkDoc.id,
               classId,
               materialId: materialDoc.id,
-              materialType: materialTypeForKind(String(material.materialType ?? material.kind ?? "notes")),
-              teacherId: readProfessorId(material),
+              materialType,
+              teacherId,
               title: String(material.title ?? "Uploaded material")
             })
           )
@@ -381,6 +411,11 @@ function normalizeChunk({
   title: string;
 }): SourceChunk {
   const content = String(chunkData.content ?? chunkData.chunk_text ?? "");
+  const rawPageStart = readOptionalNumber(chunkData.pageStart ?? chunkData.page_start ?? chunkData.pageNumber);
+  const rawPageEnd = readOptionalNumber(chunkData.pageEnd ?? chunkData.page_end ?? rawPageStart);
+  const pageStart = rawPageStart && rawPageEnd ? Math.min(rawPageStart, rawPageEnd) : rawPageStart;
+  const pageEnd = rawPageStart && rawPageEnd ? Math.max(rawPageStart, rawPageEnd) : rawPageEnd;
+  const pageNumber = pageStart ?? readOptionalNumber(chunkData.pageNumber);
   const problemNumbers = Array.isArray(chunkData.problemNumbers)
     ? chunkData.problemNumbers.map(String)
     : problemNumbersFromText(`${chunkData.label ?? ""}\n${content}`);
@@ -395,7 +430,9 @@ function normalizeChunk({
     label: String(chunkData.label ?? chunkData.sectionHeading ?? "Uploaded excerpt"),
     materialId: String(chunkData.materialId ?? materialId),
     materialType: String(chunkData.materialType ?? materialType),
-    pageNumber: readOptionalNumber(chunkData.pageNumber ?? chunkData.page_start ?? chunkData.pageStart),
+    pageEnd,
+    pageNumber,
+    pageStart,
     problemNumbers,
     professorId: readProfessorId(chunkData) || teacherId,
     professorName: readOptionalString(chunkData.professorName ?? chunkData.professor_name),

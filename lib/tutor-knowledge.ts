@@ -12,8 +12,6 @@ export type TutorKnowledgeKind = (typeof tutorKnowledgeKinds)[number];
 
 export type TutorKnowledgeSourceMode = "file" | "pasted" | "file-and-pasted";
 
-export const maxTutorKnowledgeUploadBytes = 50 * 1024 * 1024;
-
 export const supportedTutorKnowledgeExtensions = [".pdf", ".txt", ".md", ".csv"] as const;
 
 export const geminiEmbedding2PdfPageLimit = 6;

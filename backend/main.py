@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import json
@@ -16,7 +17,8 @@ from dotenv import load_dotenv
 from .material_visibility import is_student_visible_ready_material
 from .sample_data import COURSES, DOCUMENTS, TUTOR_POLICIES
 
-load_dotenv(".env.local")
+if os.getenv("CHANDRA_ENV_LOADED") != "1":
+    load_dotenv(".env.local")
 
 DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-mini"
 
@@ -167,10 +169,6 @@ async def extract_material(
 ) -> dict[str, str]:
     authorize_class_teacher(classId, authorization)
     contents = await file.read()
-    max_upload_bytes = 12 * 1024 * 1024
-
-    if len(contents) > max_upload_bytes:
-        raise HTTPException(status_code=400, detail="Files must be 12 MB or smaller.")
 
     file_name = file.filename or "material"
     is_pdf = file.content_type == "application/pdf" or file_name.lower().endswith(".pdf")
@@ -410,54 +408,7 @@ def insert_ranked_hit(top_hits: list[dict[str, Any]], hit: dict[str, Any], limit
 
 async def get_firestore_material_documents(class_id: str) -> list[dict[str, Any]]:
     try:
-        materials = (
-            firebase_db()
-            .collection("classes")
-            .document(class_id)
-            .collection("materials")
-            .where("status", "==", "ready")
-            .stream()
-        )
-        documents = []
-
-        for material in materials:
-            material_data = material.to_dict() or {}
-
-            if not is_student_visible_ready_material(material_data):
-                continue
-
-            chunks = []
-
-            for chunk in material.reference.collection("chunks").stream():
-                chunk_data = chunk.to_dict() or {}
-                chunks.append(
-                    {
-                        "id": chunk.id,
-                        "documentId": material.id,
-                        "label": str(chunk_data.get("label") or "Uploaded excerpt"),
-                        "content": str(chunk_data.get("content") or chunk_data.get("chunk_text") or ""),
-                        "materialType": str(
-                            chunk_data.get("materialType")
-                            or material_data.get("materialType")
-                            or material_data.get("kind")
-                            or "material"
-                        ),
-                    }
-                )
-
-            documents.append(
-                {
-                    "id": material.id,
-                    "courseId": class_id,
-                    "title": str(material_data.get("title") or "Uploaded material"),
-                    "kind": str(material_data.get("kind") or "lecture-notes"),
-                    "materialType": str(material_data.get("materialType") or material_data.get("kind") or "material"),
-                    "status": "ready",
-                    "chunks": chunks,
-                }
-            )
-
-        return documents
+        return await asyncio.to_thread(get_firestore_material_documents_sync, class_id)
     except HTTPException:
         raise
     except Exception:
@@ -480,47 +431,115 @@ async def get_firestore_material_documents(class_id: str) -> list[dict[str, Any]
                 return []
 
             materials = materials_response.json().get("documents", [])
-            documents = []
+            documents = await asyncio.gather(
+                *[
+                    get_rest_material_document(
+                        client,
+                        base_url=base_url,
+                        api_key=api_key,
+                        class_id=class_id,
+                        material=material,
+                    )
+                    for material in materials
+                ]
+            )
 
-            for material in materials:
-                material_name = material["name"]
-                material_id = material_name.rsplit("/", 1)[-1]
-                fields = material.get("fields", {})
-                material_data = {key: firestore_value(value) for key, value in fields.items()}
-                status = firestore_string(fields.get("status")) or "ready"
-
-                material_data["status"] = status
-
-                if not is_student_visible_ready_material(material_data):
-                    continue
-
-                chunks_url = f"{base_url}/classes/{class_id}/materials/{material_id}/chunks?key={api_key}"
-                chunks_response = await client.get(chunks_url)
-                chunk_documents = chunks_response.json().get("documents", []) if chunks_response.status_code < 400 else []
-
-                documents.append(
-                    {
-                        "id": material_id,
-                        "courseId": class_id,
-                        "title": str(material_data.get("title") or "Uploaded material"),
-                        "kind": str(material_data.get("kind") or "lecture-notes"),
-                        "materialType": str(material_data.get("materialType") or material_data.get("kind") or "material"),
-                        "status": status,
-                        "chunks": [
-                            {
-                                "id": chunk["name"].rsplit("/", 1)[-1],
-                                "documentId": material_id,
-                                "label": firestore_string(chunk.get("fields", {}).get("label")) or "Uploaded excerpt",
-                                "content": firestore_string(chunk.get("fields", {}).get("content")) or "",
-                            }
-                            for chunk in chunk_documents
-                        ],
-                    }
-                )
-
-            return documents
+        return [document for document in documents if document is not None]
     except httpx.HTTPError:
         return []
+
+
+def get_firestore_material_documents_sync(class_id: str) -> list[dict[str, Any]]:
+    materials = (
+        firebase_db()
+        .collection("classes")
+        .document(class_id)
+        .collection("materials")
+        .where("status", "==", "ready")
+        .stream()
+    )
+    documents = []
+
+    for material in materials:
+        material_data = material.to_dict() or {}
+
+        if not is_student_visible_ready_material(material_data):
+            continue
+
+        chunks = []
+
+        for chunk in material.reference.collection("chunks").stream():
+            chunk_data = chunk.to_dict() or {}
+            chunks.append(
+                {
+                    "id": chunk.id,
+                    "documentId": material.id,
+                    "label": str(chunk_data.get("label") or "Uploaded excerpt"),
+                    "content": str(chunk_data.get("content") or chunk_data.get("chunk_text") or ""),
+                    "materialType": str(
+                        chunk_data.get("materialType")
+                        or material_data.get("materialType")
+                        or material_data.get("kind")
+                        or "material"
+                    ),
+                }
+            )
+
+        documents.append(
+            {
+                "id": material.id,
+                "courseId": class_id,
+                "title": str(material_data.get("title") or "Uploaded material"),
+                "kind": str(material_data.get("kind") or "lecture-notes"),
+                "materialType": str(material_data.get("materialType") or material_data.get("kind") or "material"),
+                "status": "ready",
+                "chunks": chunks,
+            }
+        )
+
+    return documents
+
+
+async def get_rest_material_document(
+    client: httpx.AsyncClient,
+    *,
+    base_url: str,
+    api_key: str,
+    class_id: str,
+    material: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    material_name = material["name"]
+    material_id = material_name.rsplit("/", 1)[-1]
+    fields = material.get("fields", {})
+    material_data = {key: firestore_value(value) for key, value in fields.items()}
+    status = firestore_string(fields.get("status")) or "ready"
+
+    material_data["status"] = status
+
+    if not is_student_visible_ready_material(material_data):
+        return None
+
+    chunks_url = f"{base_url}/classes/{class_id}/materials/{material_id}/chunks?key={api_key}"
+    chunks_response = await client.get(chunks_url)
+    chunk_documents = chunks_response.json().get("documents", []) if chunks_response.status_code < 400 else []
+
+    return {
+        "id": material_id,
+        "courseId": class_id,
+        "title": str(material_data.get("title") or "Uploaded material"),
+        "kind": str(material_data.get("kind") or "lecture-notes"),
+        "materialType": str(material_data.get("materialType") or material_data.get("kind") or "material"),
+        "status": status,
+        "chunks": [
+            {
+                "id": chunk["name"].rsplit("/", 1)[-1],
+                "documentId": material_id,
+                "label": firestore_string(chunk.get("fields", {}).get("label")) or "Uploaded excerpt",
+                "content": firestore_string(chunk.get("fields", {}).get("content")) or "",
+            }
+            for chunk in chunk_documents
+        ],
+    }
 
 
 async def build_tutor_system_prompt(course_id: str, retrieval_hits: list[dict[str, Any]]) -> str:
@@ -617,6 +636,7 @@ def build_core_tutor_instructions(
         *tutor_behavior_lines(policy_title),
         *answer_policy_lines(answer_policy),
         "- Give the smallest useful hint before giving a larger explanation.",
+        "- When a student gives a calculation, answer, or conclusion, verify it before affirming it. If it is incorrect, point out the first wrong step or value and continue from the corrected idea.",
         "",
         "Academic integrity boundaries:",
         *academic_integrity_lines(answer_policy),
@@ -633,8 +653,9 @@ def build_core_tutor_instructions(
         ),
         "",
         "Style:",
-        "- Keep replies brief enough for a chat interface.",
+        response_length_style_line(model_settings["responseLength"]),
         "- Be warm, calm, and concrete.",
+        "- For simple greetings or check-ins, reply naturally in one short chat message and ask what course problem or concept the student wants to work on; do not format that as a next-step tutoring move.",
         "- Use LaTeX for math expressions.",
     ]
 
@@ -658,6 +679,7 @@ def normalize_source_usage(value: Optional[dict[str, Any]]) -> dict[str, Any]:
         "citeSourcePages": bool_with_default(source.get("citeSourcePages"), True),
         "askClarificationIfSourceUnclear": bool_with_default(source.get("askClarificationIfSourceUnclear"), True),
         "preferredSourceType": preferred_source_type,
+        "quoteSourcePassages": bool_with_default(source.get("quoteSourcePassages"), True),
     }
 
 
@@ -669,7 +691,7 @@ def normalize_model_settings(value: Optional[dict[str, Any]]) -> dict[str, Any]:
         "modelId": str(source.get("modelId") or DEFAULT_OPENROUTER_MODEL),
         "reasoningEffort": reasoning_effort if reasoning_effort in {"low", "medium", "high"} else "medium",
         "creativity": clamp_int(source.get("creativity"), 35, 0, 100),
-        "responseLength": response_length if response_length in {"short", "medium", "long"} else "medium",
+        "responseLength": response_length if response_length in {"short", "medium", "long", "extended"} else "medium",
     }
 
 
@@ -692,10 +714,22 @@ def creativity_to_temperature(creativity: int) -> float:
 
 def response_length_to_max_tokens(response_length: str) -> int:
     if response_length == "short":
-        return 700
+        return 900
+    if response_length == "extended":
+        return 7000
     if response_length == "long":
-        return 2600
-    return 1600
+        return 4200
+    return 2200
+
+
+def response_length_style_line(response_length: str) -> str:
+    if response_length == "short":
+        return "- Keep replies to a few concise sentences unless the student asks for more."
+    if response_length == "extended":
+        return "- You may give detailed multi-step explanations and relevant quoted class-material passages when allowed."
+    if response_length == "long":
+        return "- Give fuller explanations with clear steps and enough context for math-heavy examples."
+    return "- Keep replies focused for chat, with enough detail to move the student forward."
 
 
 def tutor_behavior_lines(policy_title: str) -> list[str]:
@@ -772,6 +806,13 @@ def source_usage_lines(source_usage: dict[str, Any]) -> list[str]:
             ["- When using source material, mention the source title and include page numbers when available."]
             if source_usage["citeSourcePages"]
             else ["- When using source material, mention the source title when helpful; page citations are optional."]
+        ),
+        *(
+            [
+                "- When a student asks to pull up, read, or quote a specific passage from selected uploaded class material, quote the relevant passage exactly with source/page context, then explain or paraphrase it. Do not refuse on generic copyright grounds for selected class materials, and do not invent missing words."
+            ]
+            if source_usage["quoteSourcePassages"]
+            else ["- Include at most one short quote of 20 words or fewer from source material when useful, then paraphrase the idea."]
         ),
     ]
 

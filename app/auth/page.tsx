@@ -13,7 +13,6 @@ export default function AuthPage() {
       <Suspense
         fallback={
           <section className="auth-card">
-            <p className="eyebrow">Loading</p>
             <h1>Preparing account setup.</h1>
           </section>
         }

@@ -5,6 +5,7 @@ node_modules
 out
 dist
 .langgraph_api
+.chandra-dev
 .playwright-mcp
 __pycache__
 *.py[cod]

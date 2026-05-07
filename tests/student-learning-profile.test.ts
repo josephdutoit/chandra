@@ -11,10 +11,10 @@ test("active reviewed profile appears in the tutor prompt", () => {
   const profileSource = readFileSync(join(repoRoot, "lib/student-learning-profiles-server.ts"), "utf8");
 
   assert.match(promptSource, /Private student learning profile/);
-  assert.match(chatRouteSource, /getActiveStudentLearningProfileDigest/);
-  assert.match(chatRouteSource, /studentLearningProfileDigest/);
+  assert.match(chatRouteSource, /getActiveStudentLearningProfileTutorContext/);
+  assert.match(chatRouteSource, /studentLearningProfileContext\.digest/);
   assert.match(profileSource, /if \(!profileDocument\?\.active \|\| !profileDocument\.teacherReviewed \|\| !profileDocument\.activeProfile\)/);
-  assert.match(profileSource, /return buildStudentLearningProfileDigest\(profileDocument\)/);
+  assert.match(profileSource, /digest: buildStudentLearningProfileDigest\(profileDocument\)/);
 });
 
 test("unreviewed draft profile does not appear in the tutor prompt", () => {
@@ -22,7 +22,7 @@ test("unreviewed draft profile does not appear in the tutor prompt", () => {
 
   assert.match(profileSource, /draftProfile/);
   assert.match(profileSource, /!profileDocument\.teacherReviewed/);
-  assert.match(profileSource, /return ""/);
+  assert.match(profileSource, /digest: ""/);
 });
 
 test("profile prompt says profile is private and subordinate to teacher policy", () => {
@@ -84,6 +84,27 @@ test("model can provide profile change notes for teacher review", () => {
   assert.match(profileSource, /profileChangeNotes/);
   assert.match(teacherSource, /Model change notes/);
   assert.match(teacherSource, /Changes in new draft/);
+});
+
+test("profile update model input includes strategy telemetry and adjacent evidence", () => {
+  const profileSource = readFileSync(join(repoRoot, "lib/student-learning-profiles-server.ts"), "utf8");
+
+  assert.match(profileSource, /learningStrategyTelemetry: message\.role === "assistant"/);
+  assert.match(profileSource, /retrievalConfidence: message\.role === "assistant"/);
+  assert.match(profileSource, /sources: message\.role === "assistant"/);
+  assert.match(profileSource, /selectProfileUpdateTranscriptMessages/);
+  assert.match(profileSource, /includedIndexes\.add\(index - 1\)/);
+  assert.match(profileSource, /includedIndexes\.add\(index \+ 1\)/);
+});
+
+test("profile update prompt uses strategy telemetry for support updates", () => {
+  const profileSource = readFileSync(join(repoRoot, "lib/student-learning-profiles-server.ts"), "utf8");
+
+  assert.match(profileSource, /Use assistant learningStrategyTelemetry when present/);
+  assert.match(profileSource, /triedStrategies, effectiveSupports, lessEffectiveSupports, strategiesToTryNext, and evidence/);
+  assert.match(profileSource, /observedOutcome is student_progressed/);
+  assert.match(profileSource, /observedOutcome is student_still_stuck/);
+  assert.match(profileSource, /not as grading, discipline, diagnosis, placement, or sensitive trait data/);
 });
 
 test("teacher-only learning profile routes enforce authorization", () => {

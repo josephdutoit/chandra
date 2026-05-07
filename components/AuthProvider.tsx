@@ -2,7 +2,7 @@
 
 import { User } from "firebase/auth";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { subscribeToAuth, subscribeToUserProfile, type UserProfile } from "@/lib/auth";
+import { startUserPresenceHeartbeat, subscribeToAuth, subscribeToUserProfile, type UserProfile } from "@/lib/auth";
 import { isFirebaseConfigured } from "@/lib/firebase";
 
 type AuthState = {
@@ -65,6 +65,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       unsubscribeAuth();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !profile) {
+      return () => {};
+    }
+
+    return startUserPresenceHeartbeat(user, profile);
+  }, [profile, user]);
 
   const value = useMemo(
     () => ({

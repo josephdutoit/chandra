@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
@@ -38,6 +38,8 @@ type ChatStreamEvent =
   | { errorCode?: string; errorId?: string; message: string; stage: string; type: "error" }
   | { payload: TutorApiResponse; type: "final" };
 
+const studentComposerTextareaMaxHeight = 156;
+
 const initialMessages: ChatMessage[] = [
   {
     id: "welcome",
@@ -54,7 +56,6 @@ export default function StudentPage() {
       <Suspense
         fallback={
           <section className="auth-state-panel">
-            <p className="eyebrow">Loading</p>
             <h1>Preparing student chat.</h1>
           </section>
         }
@@ -71,6 +72,7 @@ function StudentWorkspace() {
   const { firebaseReady, profile, user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [draft, setDraft] = useState("");
+  const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [chatProgress, setChatProgress] = useState<ChatProgress | null>(null);
   const [classLoadError, setClassLoadError] = useState<{ classId: string; message: string } | null>(null);
@@ -161,6 +163,10 @@ function StudentWorkspace() {
   const conversationMessageCount = selectedConversation?.messageCount ?? 0;
   const accountName = profile?.displayName ?? user?.displayName ?? "Student";
   const accountEmail = profile?.email ?? user?.email ?? "";
+
+  useEffect(() => {
+    resizeStudentComposerTextarea(draftTextareaRef.current);
+  }, [draft]);
 
   useEffect(() => {
     if (!firebaseReady || !activeCourseId || !activeSelectedConversationId || !user) {
@@ -297,7 +303,8 @@ function StudentWorkspace() {
           content: data.message ?? data.content ?? "I could not generate a response.",
           createdAt: new Date().toISOString(),
           langGraphTrace: data.langGraphTrace,
-          sources: data.sources ?? []
+          sources: data.sources ?? [],
+          structuredOutput: data.structuredOutput
         }
       ]);
     } catch (caughtError) {
@@ -342,7 +349,6 @@ function StudentWorkspace() {
             </Link>
 
             <section className="student-sidebar-card student-current-class-card" aria-label="Current class">
-              <p className="eyebrow">Current class</p>
               <h2>
                 <span>{className}</span>
                 {classSectionLabel ? <span>{classSectionLabel}</span> : null}
@@ -366,7 +372,7 @@ function StudentWorkspace() {
             {profile?.role === "student" && !isTeacherPreview ? (
               <section className="student-sidebar-card student-conversation-history" aria-label="Saved conversations">
                 <div className="sidebar-section-heading">
-                  <p className="eyebrow">Conversations</p>
+                  <strong>Conversations</strong>
                   <button className="student-new-mini-button" type="button" onClick={startNewConversation}>
                     New
                   </button>
@@ -439,7 +445,7 @@ function StudentWorkspace() {
           {pinnedTeacherInstructions ? (
             <section className="student-teacher-instructions" aria-label="Teacher instructions">
               <div>
-                <p className="eyebrow">Teacher instructions</p>
+                <strong className="student-instructions-heading">Teacher instructions</strong>
                 <p>{pinnedTeacherInstructions}</p>
               </div>
             </section>
@@ -474,18 +480,26 @@ function StudentWorkspace() {
                     </span>
                     <div className="assistant-message-stack">
                       <div className="message-meta">Chandra</div>
-                      <div className="assistant-message-bubble">
-                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                          {normalizeMarkdownMath(message.content)}
-                        </ReactMarkdown>
-                      </div>
+                      {assistantMessageAnswerContent(message) ? (
+                        <div className="assistant-message-bubble">
+                          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                            {normalizeMarkdownMath(assistantMessageAnswerContent(message))}
+                          </ReactMarkdown>
+                        </div>
+                      ) : null}
+                      {assistantStructuredSections(message).map((section) => (
+                        <div className={`assistant-structured-section ${section.kind}`} key={section.kind}>
+                          <strong>{section.label}</strong>
+                          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                            {normalizeMarkdownMath(normalizeStructuredSectionMarkdown(section.content, section.kind))}
+                          </ReactMarkdown>
+                        </div>
+                      ))}
                       {message.sources?.length ? (
                         <div className="message-sources" aria-label="Sources used">
                           <strong>Sources:</strong>
-                          {message.sources.map((source, index) => (
-                            <span key={`${source.title}-${source.pageNumber ?? ""}-${source.problemNumber ?? ""}-${index}`}>
-                              {formatSourceLabel(source)}
-                            </span>
+                          {condensedSourceLabels(message.sources).map((label, index) => (
+                            <span key={`${label}-${index}`}>{label}</span>
                           ))}
                         </div>
                       ) : null}
@@ -500,6 +514,7 @@ function StudentWorkspace() {
           <form className="composer student-composer" onSubmit={sendMessage}>
             <textarea
               aria-label="Message Chandra"
+              ref={draftTextareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={activeCourseId ? "Ask about a problem, step, or equation..." : "Join a class to start chatting."}
@@ -513,6 +528,17 @@ function StudentWorkspace() {
       </section>
     </RequireAuth>
   );
+}
+
+function resizeStudentComposerTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) {
+    return;
+  }
+
+  textarea.style.height = "auto";
+  const nextHeight = Math.min(textarea.scrollHeight, studentComposerTextareaMaxHeight);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > studentComposerTextareaMaxHeight ? "auto" : "hidden";
 }
 
 function ChatProgressMessage({ progress }: { progress: ChatProgress }) {
@@ -705,12 +731,120 @@ function normalizeSearchQuery(query: string) {
   return query.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function assistantMessageAnswerContent(message: ChatMessage) {
+  return message.structuredOutput ? message.structuredOutput.sections.answer : message.content;
+}
+
+function assistantStructuredSections(message: ChatMessage) {
+  const sections = message.structuredOutput?.sections;
+
+  if (!sections) {
+    return [];
+  }
+
+  return [
+    { content: sections.hint, kind: "hint", label: "Hint" },
+    { content: sections.explanation, kind: "explanation", label: "Why this works" },
+    { content: sections.formula, kind: "formula", label: "Formula" },
+    { content: sections.example, kind: "example", label: "Example" },
+    { content: sections.checkWork, kind: "check-work", label: "Check your work" },
+    {
+      content: message.sources?.length || isGenericSourceNote(sections.sourceNote) ? undefined : sections.sourceNote,
+      kind: "source-note",
+      label: "Source"
+    },
+    { content: sections.nextStep, kind: "next-step", label: "Your next step" }
+  ].filter((section): section is { content: string; kind: string; label: string } => Boolean(section.content));
+}
+
+function isGenericSourceNote(note: string | undefined) {
+  return !note || /^based on the selected class material\.?$/i.test(note.trim());
+}
+
+function normalizeStructuredSectionMarkdown(content: string, kind: string) {
+  const cleaned = content
+    .trim()
+    .replace(/^\*\*\s*/, "")
+    .replace(/\s*\*\*$/, "");
+
+  if (kind !== "formula") {
+    return cleaned;
+  }
+
+  if (/^\$\$[\s\S]*\$\$$/.test(cleaned) || /^\\\[/.test(cleaned)) {
+    return cleaned;
+  }
+
+  const formulas = cleaned
+    .split(/\s*,\s*(?=(?:P|E|M|A|\\mu|μ|\$?\\?mu)\b)/)
+    .map((formula) => formula.trim())
+    .filter(Boolean);
+
+  if (formulas.length <= 1) {
+    return `$$\n${cleaned.replace(/^\$|\$$/g, "")}\n$$`;
+  }
+
+  return formulas.map((formula) => `$$\n${formula.replace(/^\$|\$$/g, "")}\n$$`).join("\n\n");
+}
+
 function formatSourceLabel(source: NonNullable<ChatMessage["sources"]>[number]) {
   return [
     source.title,
     source.problemNumber ? `problem ${source.problemNumber}` : "",
     source.pageNumber ? `p. ${source.pageNumber}` : ""
   ].filter(Boolean).join(" · ");
+}
+
+function condensedSourceLabels(sources: NonNullable<ChatMessage["sources"]>) {
+  const groupedSources = new Map<string, { pages: Set<number>; source: NonNullable<ChatMessage["sources"]>[number] }>();
+
+  for (const source of sources) {
+    const key = [source.title, source.materialType, source.problemNumber ?? ""].join("|");
+    const existing = groupedSources.get(key) ?? { pages: new Set<number>(), source };
+
+    if (source.pageNumber) {
+      existing.pages.add(source.pageNumber);
+    }
+
+    groupedSources.set(key, existing);
+  }
+
+  const labels = Array.from(groupedSources.values()).map(({ pages, source }) =>
+    formatSourceLabel({
+      ...source,
+      pageNumber: undefined
+    }) + formatPageRange(Array.from(pages))
+  );
+  const visibleLabels = labels.slice(0, 3);
+
+  return labels.length > visibleLabels.length ? [...visibleLabels, `+${labels.length - visibleLabels.length} more`] : visibleLabels;
+}
+
+function formatPageRange(pages: number[]) {
+  const sortedPages = [...new Set(pages)].sort((first, second) => first - second);
+
+  if (!sortedPages.length) {
+    return "";
+  }
+
+  const ranges: string[] = [];
+  let rangeStart = sortedPages[0];
+  let previousPage = sortedPages[0];
+
+  for (const page of sortedPages.slice(1)) {
+    if (page === previousPage + 1) {
+      previousPage = page;
+      continue;
+    }
+
+    ranges.push(rangeStart === previousPage ? `${rangeStart}` : `${rangeStart}-${previousPage}`);
+    rangeStart = page;
+    previousPage = page;
+  }
+
+  ranges.push(rangeStart === previousPage ? `${rangeStart}` : `${rangeStart}-${previousPage}`);
+
+  return ` · ${ranges.length === 1 && !ranges[0].includes("-") ? "p." : "pp."} ${ranges.join(", ")}`;
 }
 
 function formatConversationMeta(conversation: StudentConversationSummary) {
