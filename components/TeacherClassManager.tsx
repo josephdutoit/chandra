@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { apiUrl } from "@/lib/api-client";
-import { signOutCurrentUser } from "@/lib/auth";
+import { signOutCurrentUser, updateUserThemePreference } from "@/lib/auth";
+import {
+  normalizeTeacherClassAppearance,
+  normalizeTeacherClassThemeColor,
+  teacherClassThemeColorOptions
+} from "@/lib/class-theme";
 import {
   defaultRefusalStyle,
   mathNotationOptions,
@@ -280,6 +285,7 @@ const responseFormatSettings = [
 ] as const;
 
 const selectableModelOptions = defaultModelOptions.filter((modelOption) => modelOption.provider === "openrouter");
+const classAppearanceOptions = ["light", "dark"] as const;
 
 export function TeacherClassManager() {
   const router = useRouter();
@@ -367,6 +373,7 @@ export function TeacherClassManager() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingStudent, setIsSavingStudent] = useState(false);
   const [isSavingMaterial, setIsSavingMaterial] = useState(false);
+  const [isSavingThemePreference, setIsSavingThemePreference] = useState(false);
   const [isClassDialogOpen, setIsClassDialogOpen] = useState(false);
   const [isStudentDialogOpen, setIsStudentDialogOpen] = useState(false);
   const [isKnowledgeDialogOpen, setIsKnowledgeDialogOpen] = useState(false);
@@ -560,6 +567,10 @@ export function TeacherClassManager() {
   const selectedModelSettings = normalizeClassModelSettings(selectedClass?.modelSettings);
   const selectedResponseFormat = normalizeResponseFormatSettings(selectedClass?.responseFormat);
   const selectedTutorBehavior = normalizeTutorBehavior(selectedClass?.behaviorTitle);
+  const selectedClassAppearance = normalizeTeacherClassAppearance(selectedClass?.appearance);
+  const selectedClassThemeColor = normalizeTeacherClassThemeColor(selectedClass?.themeColor);
+  const selectedAppearance = normalizeTeacherClassAppearance(profile?.appearance ?? selectedClass?.appearance);
+  const selectedThemeColor = normalizeTeacherClassThemeColor(profile?.themeColor ?? selectedClass?.themeColor);
   const displayedCreativity =
     settingsCreativityPreview?.classId === activeClassId
       ? settingsCreativityPreview.value
@@ -1197,6 +1208,7 @@ export function TeacherClassManager() {
 
       await updateTeacherClassSettings({
         answerPolicy,
+        appearance: selectedClassAppearance,
         behaviorInstructions: String(formData.get("behaviorInstructions") ?? ""),
         behaviorTitle: normalizeTutorBehavior(formData.get("behaviorTitle")),
         classId: activeClassId,
@@ -1211,7 +1223,8 @@ export function TeacherClassManager() {
         refusalStyle: String(formData.get("refusalStyle") ?? "").trim() || defaultRefusalStyle,
         responseFormat,
         section: String(formData.get("section") ?? ""),
-        sourceUsage
+        sourceUsage,
+        themeColor: selectedClassThemeColor
       });
     } catch (caughtError) {
       setError(formatClassError(caughtError, "Class settings failed."));
@@ -1234,6 +1247,30 @@ export function TeacherClassManager() {
       setInviteLinkCopyResult({ classCode: selectedClassCode, status: "copied" });
     } catch {
       setInviteLinkCopyResult({ classCode: selectedClassCode, status: "failed" });
+    }
+  }
+
+  async function updatePersonalThemePreference(nextPreference: {
+    appearance?: unknown;
+    themeColor?: unknown;
+  }) {
+    if (!user) {
+      return;
+    }
+
+    setError("");
+    setIsSavingThemePreference(true);
+
+    try {
+      await updateUserThemePreference({
+        appearance: normalizeTeacherClassAppearance(nextPreference.appearance ?? selectedAppearance),
+        themeColor: normalizeTeacherClassThemeColor(nextPreference.themeColor ?? selectedThemeColor),
+        uid: user.uid
+      });
+    } catch (caughtError) {
+      setError(formatClassError(caughtError, "Theme preference failed."));
+    } finally {
+      setIsSavingThemePreference(false);
     }
   }
 
@@ -2055,7 +2092,12 @@ export function TeacherClassManager() {
 
   return (
     <>
-      <section className="teacher-dashboard" aria-label="Teacher dashboard">
+      <section
+        className="teacher-dashboard"
+        data-appearance={selectedAppearance}
+        data-theme-color={selectedThemeColor}
+        aria-label="Teacher dashboard"
+      >
         <aside className="teacher-sidebar" aria-label="Teacher navigation">
           <div className="teacher-sidebar-scroll">
             <div className="teacher-brand">
@@ -2237,8 +2279,8 @@ export function TeacherClassManager() {
 
                     <div className="overview-metric-grid" aria-label="Today overview metrics">
                       <OverviewMetricCard icon={<UserGroupIcon />} label="Total students" value={String(overviewTotalStudents)} />
-                      <OverviewMetricCard icon={<CircleIcon />} isTinted label="Active now" value={String(overviewActiveStudents)} />
-                      <OverviewMetricCard icon={<ChatIcon />} isTinted label="Questions today" value={String(overviewQuestionsToday)} />
+                      <OverviewMetricCard icon={<CircleIcon />} label="Active now" value={String(overviewActiveStudents)} />
+                      <OverviewMetricCard icon={<ChatIcon />} label="Questions today" value={String(overviewQuestionsToday)} />
                       <OverviewMetricCard icon={<ChatIcon />} label="Total conversations" value={String(overviewTotalConversations)} />
                       <OverviewMetricCard
                         icon={<TrendLineIcon />}
@@ -2526,7 +2568,7 @@ export function TeacherClassManager() {
                       <InsightMetricCard
                         icon={<StrugglingTopicsIcon />}
                         label="emerging misconceptions"
-                        tone="orange"
+                        tone="neutral"
                         value={String(insightMetricValue("emergingMisconceptions"))}
                       />
                       <InsightMetricCard
@@ -2820,6 +2862,51 @@ export function TeacherClassManager() {
                             defaultValue={selectedClass.defaultAssignmentContext ?? ""}
                             placeholder="Limits and introductory derivatives"
                           />
+
+                          <div className="settings-theme-control" aria-label="Personal theme color" role="radiogroup">
+                            <span className="settings-control-label">Personal theme color</span>
+                            <div className="settings-theme-swatches">
+                              {teacherClassThemeColorOptions.map((option) => (
+                                <label className="settings-theme-swatch" key={option.id}>
+                                  <input
+                                    checked={selectedThemeColor === option.id}
+                                    disabled={isSavingThemePreference}
+                                    name="personalThemeColor"
+                                    type="radio"
+                                    value={option.id}
+                                    onChange={() => updatePersonalThemePreference({ themeColor: option.id })}
+                                  />
+                                  <span>
+                                    <span
+                                      className="settings-theme-swatch-dot"
+                                      style={{ backgroundColor: option.color }}
+                                      aria-hidden="true"
+                                    />
+                                    {option.label}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="settings-appearance-control" aria-label="Personal appearance" role="radiogroup">
+                            <span className="settings-control-label">Personal appearance</span>
+                            <div className="settings-appearance-pills">
+                              {classAppearanceOptions.map((appearance) => (
+                                <label className="settings-choice-pill" key={appearance}>
+                                  <input
+                                    checked={selectedAppearance === appearance}
+                                    disabled={isSavingThemePreference}
+                                    name="personalAppearance"
+                                    type="radio"
+                                    value={appearance}
+                                    onChange={() => updatePersonalThemePreference({ appearance })}
+                                  />
+                                  <span>{capitalizeLabel(appearance)}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
                         </section>
 
                         <section className="settings-card compact-settings-card" aria-labelledby="settings-tutor-behavior">
@@ -3766,13 +3853,13 @@ export function TeacherClassManager() {
                       <ConversationMetricCard
                         icon={<StrugglingTopicsIcon />}
                         label="need follow-up"
-                        tone="orange"
+                        tone="neutral"
                         value={String(conversationMetrics.followUp)}
                       />
                       <ConversationMetricCard
                         icon={<LowConfidenceIcon />}
                         label="low confidence"
-                        tone="orange"
+                        tone="neutral"
                         value={String(conversationMetrics.lowConfidence)}
                       />
                     </div>
@@ -4625,7 +4712,7 @@ function InsightMetricCard({
 }: {
   icon: ReactNode;
   label: string;
-  tone: "gold" | "orange" | "teal";
+  tone: "gold" | "neutral" | "teal";
   value: string;
 }) {
   return (
@@ -5069,7 +5156,7 @@ function ConversationMetricCard({
 }: {
   icon: ReactNode;
   label: string;
-  tone: "gold" | "orange" | "teal";
+  tone: "gold" | "neutral" | "teal";
   value: string;
 }) {
   return (

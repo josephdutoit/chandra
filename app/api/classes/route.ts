@@ -8,6 +8,7 @@ import {
   defaultRefusalStyle,
   defaultSourceUsageSettings
 } from "@/lib/class-settings";
+import { defaultTeacherClassAppearance, defaultTeacherClassThemeColor } from "@/lib/class-theme";
 import { adminAuth, adminDb, assertFirebaseAdminAuthReady } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
@@ -70,7 +71,9 @@ export async function POST(request: Request) {
       section,
       sourceUsage: defaultSourceUsageSettings,
       teacherId: decodedToken.uid,
-      teacherName
+      teacherName,
+      appearance: defaultTeacherClassAppearance,
+      themeColor: defaultTeacherClassThemeColor
     });
 
     return NextResponse.json({ class: { id: classCode, joinCode: classCode } });

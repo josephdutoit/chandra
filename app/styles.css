@@ -1,16 +1,265 @@
 :root {
-  --bg: #fbfaf6;
-  --ink: #07111f;
-  --muted: #5f6874;
-  --line: #ded8ce;
-  --panel: #fffefb;
-  --paper: #fffefb;
-  --accent: #0b676b;
-  --accent-strong: #075459;
-  --accent-soft: #e6f1ef;
-  --gold: #5f6874;
+  --bg: #f7f6ff;
+  --ink: #0d1228;
+  --muted: #5e667a;
+  --line: #d9d8e8;
+  --panel: #ffffff;
+  --paper: #ffffff;
+  --theme-primary: #5634c7;
+  --theme-primary-strong: #4326a4;
+  --theme-primary-soft: rgba(86, 52, 199, 0.11);
+  --theme-primary-ring: rgba(86, 52, 199, 0.2);
+  --theme-primary-shadow: rgba(86, 52, 199, 0.18);
+  --theme-primary-gradient: linear-gradient(180deg, #6340dd, #5634c7);
+  --theme-bg-rgb: 86, 52, 199;
+  --accent: var(--theme-primary);
+  --accent-strong: var(--theme-primary-strong);
+  --accent-soft: var(--theme-primary-soft);
+  --gold: #b9903a;
   --rose: #b94e55;
-  --shadow: 0 18px 50px rgba(42, 37, 25, 0.12);
+  --shadow: 0 18px 50px rgba(43, 43, 83, 0.12);
+  --heading-font: Georgia, "Times New Roman", serif;
+  --chandra-heading: #101532;
+  --cream-glass: rgba(255, 255, 255, 0.78);
+  --cream-glass-strong: rgba(255, 255, 255, 0.88);
+  --soft-border: rgba(196, 198, 218, 0.76);
+  --soft-shadow: 0 12px 28px rgba(47, 45, 92, 0.07);
+  --app-bg: #f7f6ff;
+  --app-bg-layer:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(var(--theme-bg-rgb), 0.065)),
+    linear-gradient(112deg, #ffffff 0%, rgba(var(--theme-bg-rgb), 0.075) 58%, rgba(var(--theme-bg-rgb), 0.11) 100%),
+    #f9f7ff;
+  --sidebar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(246, 245, 255, 0.9)), rgba(255, 255, 255, 0.72);
+  --sticky-header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(250, 249, 255, 0.74)), rgba(255, 255, 255, 0.72);
+  --card-bg: rgba(255, 255, 255, 0.84);
+  --card-bg-strong: rgba(255, 255, 255, 0.9);
+  --card-border: rgba(196, 198, 218, 0.76);
+  --input-bg: rgba(255, 255, 255, 0.66);
+  --input-border: #cbd3d1;
+  --on-primary: #ffffff;
+  --chip-bg: rgba(255, 255, 255, 0.74);
+  --text-primary: #101532;
+  --text-secondary: #2d3548;
+  --text-muted: #5e667a;
+  --row-bg: rgba(255, 255, 255, 0.62);
+  --row-hover-bg: rgba(255, 255, 255, 0.96);
+  --selected-row-bg: var(--theme-primary-soft);
+  --selected-row-border: var(--theme-primary-ring);
+  --focus-ring: var(--theme-primary-ring);
+  --app-shadow: 0 12px 28px rgba(47, 45, 92, 0.07);
+  --sidebar-shadow: 12px 0 38px rgba(50, 46, 100, 0.055);
+  --wave-main:
+    radial-gradient(ellipse at 84% 12%, rgba(var(--theme-bg-rgb), 0.24), transparent 54%),
+    radial-gradient(ellipse at 55% 86%, rgba(var(--theme-bg-rgb), 0.16), transparent 58%),
+    linear-gradient(112deg, rgba(255, 255, 255, 0) 4%, rgba(var(--theme-bg-rgb), 0.15) 56%, rgba(var(--theme-bg-rgb), 0.11) 100%);
+  --content-wash:
+    linear-gradient(180deg, rgba(var(--theme-bg-rgb), 0.09), rgba(255, 255, 255, 0.72) 42%, rgba(255, 255, 255, 0.92)),
+    radial-gradient(ellipse at 88% 10%, rgba(var(--theme-bg-rgb), 0.14), transparent 48%);
+}
+
+[data-appearance="light"] {
+  color-scheme: light;
+  --bg: #f7f6ff;
+  --ink: #0d1228;
+  --muted: #5e667a;
+  --line: #d9d8e8;
+  --panel: #ffffff;
+  --paper: #ffffff;
+  --chandra-heading: #101532;
+  --cream-glass: rgba(255, 255, 255, 0.78);
+  --cream-glass-strong: rgba(255, 255, 255, 0.88);
+  --soft-border: rgba(196, 198, 218, 0.76);
+  --soft-shadow: 0 12px 28px rgba(47, 45, 92, 0.07);
+  --app-bg: #f7f6ff;
+  --app-bg-layer:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(var(--theme-bg-rgb), 0.065)),
+    linear-gradient(112deg, #ffffff 0%, rgba(var(--theme-bg-rgb), 0.075) 58%, rgba(var(--theme-bg-rgb), 0.11) 100%),
+    #f9f7ff;
+  --sidebar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(246, 245, 255, 0.9)), rgba(255, 255, 255, 0.72);
+  --sticky-header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(250, 249, 255, 0.74)), rgba(255, 255, 255, 0.72);
+  --card-bg: rgba(255, 255, 255, 0.84);
+  --card-bg-strong: rgba(255, 255, 255, 0.9);
+  --card-border: rgba(196, 198, 218, 0.76);
+  --input-bg: rgba(255, 255, 255, 0.66);
+  --input-border: #cbd3d1;
+  --on-primary: #ffffff;
+  --chip-bg: rgba(255, 255, 255, 0.74);
+  --text-primary: #101532;
+  --text-secondary: #2d3548;
+  --text-muted: #5e667a;
+  --row-bg: rgba(255, 255, 255, 0.62);
+  --row-hover-bg: rgba(255, 255, 255, 0.96);
+  --selected-row-bg: var(--theme-primary-soft);
+  --selected-row-border: var(--theme-primary-ring);
+  --focus-ring: var(--theme-primary-ring);
+  --app-shadow: 0 12px 28px rgba(47, 45, 92, 0.07);
+  --sidebar-shadow: 12px 0 38px rgba(50, 46, 100, 0.055);
+  --wave-main:
+    radial-gradient(ellipse at 84% 12%, rgba(var(--theme-bg-rgb), 0.24), transparent 54%),
+    radial-gradient(ellipse at 55% 86%, rgba(var(--theme-bg-rgb), 0.16), transparent 58%),
+    linear-gradient(112deg, rgba(255, 255, 255, 0) 4%, rgba(var(--theme-bg-rgb), 0.15) 56%, rgba(var(--theme-bg-rgb), 0.11) 100%);
+  --content-wash:
+    linear-gradient(180deg, rgba(var(--theme-bg-rgb), 0.09), rgba(255, 255, 255, 0.72) 42%, rgba(255, 255, 255, 0.92)),
+    radial-gradient(ellipse at 88% 10%, rgba(var(--theme-bg-rgb), 0.14), transparent 48%);
+}
+
+[data-appearance="dark"] {
+  color-scheme: dark;
+  --bg: #070a17;
+  --ink: #f5f7ff;
+  --muted: #9aa4bf;
+  --line: rgba(129, 139, 173, 0.2);
+  --panel: #11162a;
+  --paper: #0d1224;
+  --chandra-heading: #f8f6ff;
+  --cream-glass: rgba(15, 20, 38, 0.72);
+  --cream-glass-strong: rgba(17, 22, 42, 0.86);
+  --soft-border: rgba(138, 148, 190, 0.2);
+  --soft-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  --app-bg: #070a17;
+  --app-bg-layer:
+    radial-gradient(ellipse at 74% 16%, rgba(var(--theme-bg-rgb), 0.2), transparent 38%),
+    linear-gradient(180deg, #080b18 0%, #0a0e1e 44%, #080b18 100%);
+  --sidebar-bg: linear-gradient(180deg, rgba(10, 14, 29, 0.96), rgba(8, 11, 24, 0.98)), #080b18;
+  --sticky-header-bg: linear-gradient(180deg, rgba(8, 11, 24, 0.92), rgba(10, 14, 29, 0.78)), rgba(10, 14, 29, 0.72);
+  --card-bg: rgba(18, 24, 45, 0.78);
+  --card-bg-strong: rgba(19, 25, 47, 0.9);
+  --card-border: rgba(139, 149, 192, 0.2);
+  --input-bg: rgba(8, 12, 25, 0.74);
+  --input-border: rgba(143, 153, 194, 0.26);
+  --on-primary: #ffffff;
+  --chip-bg: rgba(10, 14, 29, 0.72);
+  --text-primary: #f5f7ff;
+  --text-secondary: #d8def0;
+  --text-muted: #9aa4bf;
+  --row-bg: rgba(13, 18, 35, 0.58);
+  --row-hover-bg: rgba(24, 31, 58, 0.84);
+  --selected-row-bg: var(--theme-primary-soft);
+  --selected-row-border: var(--theme-primary-ring);
+  --focus-ring: var(--theme-primary-ring);
+  --app-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  --sidebar-shadow: 14px 0 42px rgba(0, 0, 0, 0.24);
+  --wave-main:
+    radial-gradient(ellipse at 88% 0%, rgba(var(--theme-bg-rgb), 0.36), transparent 48%),
+    radial-gradient(ellipse at 54% 82%, rgba(var(--theme-bg-rgb), 0.16), transparent 60%),
+    linear-gradient(112deg, rgba(7, 10, 23, 0) 4%, rgba(var(--theme-bg-rgb), 0.22) 58%, rgba(var(--theme-bg-rgb), 0.14) 100%);
+  --content-wash:
+    linear-gradient(180deg, rgba(var(--theme-bg-rgb), 0.12), rgba(9, 12, 27, 0.52) 44%, rgba(8, 11, 24, 0.92)),
+    radial-gradient(ellipse at 90% 8%, rgba(var(--theme-bg-rgb), 0.18), transparent 48%);
+}
+
+[data-theme-color="purple"] {
+  --theme-primary: #5634c7;
+  --theme-primary-strong: #4326a4;
+  --theme-primary-soft: rgba(86, 52, 199, 0.11);
+  --theme-primary-ring: rgba(86, 52, 199, 0.22);
+  --theme-primary-shadow: rgba(86, 52, 199, 0.18);
+  --theme-primary-gradient: linear-gradient(180deg, #6340dd, #5634c7);
+  --theme-bg-rgb: 86, 52, 199;
+}
+
+[data-theme-color="indigo"] {
+  --theme-primary: #3949ab;
+  --theme-primary-strong: #2c398e;
+  --theme-primary-soft: rgba(57, 73, 171, 0.11);
+  --theme-primary-ring: rgba(57, 73, 171, 0.22);
+  --theme-primary-shadow: rgba(57, 73, 171, 0.18);
+  --theme-primary-gradient: linear-gradient(180deg, #4d5fc5, #3949ab);
+  --theme-bg-rgb: 57, 73, 171;
+}
+
+[data-theme-color="blue"] {
+  --theme-primary: #0b66a0;
+  --theme-primary-strong: #084f7d;
+  --theme-primary-soft: rgba(11, 102, 160, 0.11);
+  --theme-primary-ring: rgba(11, 102, 160, 0.22);
+  --theme-primary-shadow: rgba(11, 102, 160, 0.18);
+  --theme-primary-gradient: linear-gradient(180deg, #1677b7, #0b66a0);
+  --theme-bg-rgb: 11, 102, 160;
+}
+
+[data-theme-color="teal"] {
+  --theme-primary: #075b60;
+  --theme-primary-strong: #06494d;
+  --theme-primary-soft: rgba(7, 91, 96, 0.11);
+  --theme-primary-ring: rgba(7, 91, 96, 0.22);
+  --theme-primary-shadow: rgba(7, 91, 96, 0.18);
+  --theme-primary-gradient: linear-gradient(180deg, #0b676b, #075b60);
+  --theme-bg-rgb: 7, 91, 96;
+}
+
+[data-theme-color="emerald"] {
+  --theme-primary: #167c3d;
+  --theme-primary-strong: #106330;
+  --theme-primary-soft: rgba(22, 124, 61, 0.12);
+  --theme-primary-ring: rgba(22, 124, 61, 0.22);
+  --theme-primary-shadow: rgba(22, 124, 61, 0.18);
+  --theme-primary-gradient: linear-gradient(180deg, #21914c, #167c3d);
+  --theme-bg-rgb: 22, 124, 61;
+}
+
+[data-theme-color="rose"] {
+  --theme-primary: #b94e55;
+  --theme-primary-strong: #963d43;
+  --theme-primary-soft: rgba(185, 78, 85, 0.12);
+  --theme-primary-ring: rgba(185, 78, 85, 0.22);
+  --theme-primary-shadow: rgba(185, 78, 85, 0.18);
+  --theme-primary-gradient: linear-gradient(180deg, #c95f66, #b94e55);
+  --theme-bg-rgb: 185, 78, 85;
+}
+
+[data-appearance="dark"][data-theme-color="purple"] {
+  --theme-primary: #8f6cff;
+  --theme-primary-strong: #6e4be0;
+  --theme-primary-soft: rgba(110, 75, 224, 0.26);
+  --theme-primary-ring: rgba(143, 108, 255, 0.42);
+  --theme-primary-shadow: rgba(91, 63, 205, 0.34);
+  --theme-primary-gradient: linear-gradient(180deg, #8f6cff, #6040d8);
+}
+
+[data-appearance="dark"][data-theme-color="indigo"] {
+  --theme-primary: #7f91ff;
+  --theme-primary-strong: #5368d8;
+  --theme-primary-soft: rgba(83, 104, 216, 0.24);
+  --theme-primary-ring: rgba(127, 145, 255, 0.4);
+  --theme-primary-shadow: rgba(83, 104, 216, 0.3);
+  --theme-primary-gradient: linear-gradient(180deg, #7f91ff, #5368d8);
+}
+
+[data-appearance="dark"][data-theme-color="blue"] {
+  --theme-primary: #55b5f2;
+  --theme-primary-strong: #1681c4;
+  --theme-primary-soft: rgba(22, 129, 196, 0.23);
+  --theme-primary-ring: rgba(85, 181, 242, 0.4);
+  --theme-primary-shadow: rgba(22, 129, 196, 0.3);
+  --theme-primary-gradient: linear-gradient(180deg, #55b5f2, #1681c4);
+}
+
+[data-appearance="dark"][data-theme-color="teal"] {
+  --theme-primary: #32c0c6;
+  --theme-primary-strong: #159196;
+  --theme-primary-soft: rgba(21, 145, 150, 0.22);
+  --theme-primary-ring: rgba(50, 192, 198, 0.38);
+  --theme-primary-shadow: rgba(21, 145, 150, 0.28);
+  --theme-primary-gradient: linear-gradient(180deg, #32c0c6, #159196);
+}
+
+[data-appearance="dark"][data-theme-color="emerald"] {
+  --theme-primary: #48d17b;
+  --theme-primary-strong: #239b55;
+  --theme-primary-soft: rgba(35, 155, 85, 0.22);
+  --theme-primary-ring: rgba(72, 209, 123, 0.38);
+  --theme-primary-shadow: rgba(35, 155, 85, 0.28);
+  --theme-primary-gradient: linear-gradient(180deg, #48d17b, #239b55);
+}
+
+[data-appearance="dark"][data-theme-color="rose"] {
+  --theme-primary: #ff8992;
+  --theme-primary-strong: #d65d67;
+  --theme-primary-soft: rgba(214, 93, 103, 0.23);
+  --theme-primary-ring: rgba(255, 137, 146, 0.42);
+  --theme-primary-shadow: rgba(214, 93, 103, 0.3);
+  --theme-primary-gradient: linear-gradient(180deg, #ff8992, #d65d67);
 }
 
 * {
@@ -28,6 +277,8 @@ body {
   color: var(--ink);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a {
@@ -70,37 +321,44 @@ button:disabled {
   font-weight: 800;
 }
 
+.landing-shell,
+.auth-shell {
+  --theme-primary: #3949ab;
+  --theme-primary-strong: #2c398e;
+  --theme-primary-soft: rgba(57, 73, 171, 0.11);
+  --theme-primary-ring: rgba(57, 73, 171, 0.22);
+  --theme-primary-shadow: rgba(57, 73, 171, 0.18);
+  --theme-primary-gradient: linear-gradient(180deg, #4d5fc5, #3949ab);
+  --theme-bg-rgb: 57, 73, 171;
+}
+
 .landing-shell {
   position: relative;
   isolation: isolate;
   width: 100%;
   min-height: 100vh;
   overflow: hidden;
+  background: var(--app-bg-layer);
   padding: 36px clamp(24px, 3.6vw, 42px) 54px;
+  color: var(--text-primary);
 }
 
 .landing-shell::before {
   position: absolute;
-  z-index: -2;
-  inset: 0;
+  z-index: -1;
+  inset: 120px 0 auto 0;
+  height: 320px;
   content: "";
-  background:
-    radial-gradient(circle at 86% 42%, rgba(244, 184, 67, 0.32), transparent 28%),
-    radial-gradient(circle at 88% 82%, rgba(105, 203, 190, 0.34), transparent 34%),
-    radial-gradient(circle at 61% 46%, rgba(255, 247, 224, 0.78), transparent 42%),
-    linear-gradient(112deg, #fffdf8 0%, #fbf4e5 52%, #fff7e2 100%);
+  background: var(--wave-main);
+  clip-path: ellipse(82% 56% at 66% 0%);
 }
 
 .landing-shell::after {
   position: absolute;
   z-index: -1;
-  inset: 0;
+  inset: 210px 0 0;
   content: "";
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.34)),
-    radial-gradient(rgba(7, 17, 31, 0.08) 0.7px, transparent 0.7px);
-  background-size: auto, 3px 3px;
-  opacity: 0.32;
+  background: var(--content-wash);
 }
 
 .landing-topbar {
@@ -110,7 +368,7 @@ button:disabled {
 }
 
 .landing-topbar .brand {
-  color: #064f54;
+  color: var(--theme-primary);
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(2rem, 3.55vw, 3rem);
   font-weight: 700;
@@ -133,8 +391,8 @@ button:disabled {
 
 .landing-topbar .nav-actions a:last-child {
   min-height: 52px;
-  border-color: #075b60;
-  background: rgba(255, 253, 248, 0.54);
+  border-color: var(--theme-primary);
+  background: var(--card-bg);
   padding: 0 24px;
 }
 
@@ -240,7 +498,7 @@ button:disabled {
 
 .landing-hero .intro-panel h1 {
   max-width: 660px;
-  color: #092d37;
+  color: var(--text-primary);
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(2.65rem, 3.65vw, 3.75rem);
   font-weight: 700;
@@ -258,7 +516,7 @@ button:disabled {
 .landing-hero .intro-panel p {
   max-width: 610px;
   margin: 30px 0 0;
-  color: #203240;
+  color: var(--text-secondary);
   font-size: clamp(0.98rem, 1.18vw, 1.16rem);
   line-height: 1.52;
 }
@@ -288,22 +546,22 @@ button:disabled {
 .landing-hero .primary-button,
 .landing-hero .secondary-button {
   min-height: 56px;
-  border-color: #075b60;
+  border-color: var(--theme-primary);
   border-radius: 6px;
   padding: 0 24px;
-  color: #07505a;
+  color: var(--theme-primary);
   font-size: 0.94rem;
   font-weight: 800;
   white-space: nowrap;
 }
 
 .landing-hero .primary-button {
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
 }
 
 .landing-hero .secondary-button {
-  background: rgba(255, 253, 248, 0.64);
+  background: var(--card-bg);
 }
 
 .panel,
@@ -1169,31 +1427,27 @@ button.student-row[aria-pressed="true"] {
   min-height: 100vh;
   overflow: hidden;
   grid-template-rows: auto 1fr;
+  background: var(--app-bg-layer);
   padding: 34px clamp(22px, 3.2vw, 38px) 48px;
+  color: var(--text-primary);
 }
 
 .auth-shell::before {
   position: absolute;
-  z-index: -2;
-  inset: 0;
+  z-index: -1;
+  inset: 118px 0 auto 0;
+  height: 300px;
   content: "";
-  background:
-    radial-gradient(circle at 87% 41%, rgba(244, 184, 67, 0.34), transparent 29%),
-    radial-gradient(circle at 88% 83%, rgba(105, 203, 190, 0.34), transparent 34%),
-    radial-gradient(circle at 55% 45%, rgba(255, 247, 224, 0.72), transparent 42%),
-    linear-gradient(112deg, #fffdf8 0%, #fbf4e5 52%, #fff7e2 100%);
+  background: var(--wave-main);
+  clip-path: ellipse(74% 54% at 66% 0%);
 }
 
 .auth-shell::after {
   position: absolute;
   z-index: -1;
-  inset: 0;
+  inset: 198px 0 0;
   content: "";
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.34)),
-    radial-gradient(rgba(7, 17, 31, 0.08) 0.7px, transparent 0.7px);
-  background-size: auto, 3px 3px;
-  opacity: 0.32;
+  background: var(--content-wash);
 }
 
 .auth-topbar {
@@ -1203,7 +1457,7 @@ button.student-row[aria-pressed="true"] {
 }
 
 .auth-topbar .brand {
-  color: #064f54;
+  color: var(--theme-primary);
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(1.75rem, 3.05vw, 2.55rem);
   font-weight: 700;
@@ -1216,11 +1470,12 @@ button.student-row[aria-pressed="true"] {
   width: min(560px, calc(100vw - 40px));
   justify-self: center;
   align-self: start;
-  border: 1px solid rgba(204, 194, 179, 0.78);
-  border-radius: 12px;
-  background: rgba(255, 253, 248, 0.74);
-  box-shadow: 0 20px 58px rgba(42, 37, 25, 0.14);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--card-bg-strong);
+  box-shadow: var(--app-shadow);
   padding: 34px 44px 34px;
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 
@@ -1231,7 +1486,7 @@ button.student-row[aria-pressed="true"] {
 .auth-card h1,
 .auth-state-panel h1 {
   margin: 0;
-  color: #092d37;
+  color: var(--text-primary);
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(2rem, 2.55vw, 2.35rem);
   line-height: 1.02;
@@ -1240,13 +1495,13 @@ button.student-row[aria-pressed="true"] {
 
 .auth-card p,
 .auth-state-panel p {
-  color: var(--muted);
+  color: var(--text-muted);
   line-height: 1.6;
 }
 
 .auth-card > .eyebrow {
   margin: 0 0 14px;
-  color: #07505a;
+  color: var(--theme-primary);
   font-size: 0.88rem;
   font-weight: 800;
   text-align: center;
@@ -1258,9 +1513,9 @@ button.student-row[aria-pressed="true"] {
   grid-template-columns: repeat(2, 1fr);
   gap: 0;
   margin: 26px 0 24px;
-  border: 1px solid #c7d0d2;
+  border: 1px solid var(--input-border);
   border-radius: 8px;
-  background: rgba(255, 253, 248, 0.58);
+  background: var(--input-bg);
   padding: 0;
   overflow: hidden;
 }
@@ -1270,19 +1525,19 @@ button.student-row[aria-pressed="true"] {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #0a3440;
+  color: var(--text-primary);
   font-size: 0.96rem;
   font-weight: 800;
 }
 
 .segmented-control button + button {
-  border-left: 1px solid #d3d6d2;
+  border-left: 1px solid var(--input-border);
 }
 
 .segmented-control button[aria-pressed="true"] {
-  background: rgba(255, 253, 248, 0.72);
-  box-shadow: inset 0 0 0 1px #075b60;
-  color: #07505a;
+  background: var(--card-bg-strong);
+  box-shadow: inset 0 0 0 1px var(--theme-primary);
+  color: var(--theme-primary);
 }
 
 .auth-form {
@@ -1291,7 +1546,7 @@ button.student-row[aria-pressed="true"] {
 
 .auth-form .field-label {
   margin: 0 0 7px;
-  color: #0b3040;
+  color: var(--text-secondary);
   font-size: 0.87rem;
   font-weight: 700;
 }
@@ -1303,34 +1558,34 @@ button.student-row[aria-pressed="true"] {
 .auth-form select,
 .auth-form input {
   min-height: 44px;
-  border-color: #c7d0d2;
+  border-color: var(--input-border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--input-bg);
   padding: 0 14px;
-  color: #0b3040;
+  color: var(--text-primary);
   font-size: 0.94rem;
   box-shadow: inset 0 1px 2px rgba(7, 17, 31, 0.04);
 }
 
 .auth-form input::placeholder {
-  color: #8d959d;
-  opacity: 1;
+  color: var(--text-muted);
+  opacity: 0.72;
 }
 
 .auth-form .primary-button {
   width: 100%;
   min-height: 46px;
   margin-top: 20px;
-  border-color: #075b60;
+  border-color: var(--theme-primary);
   border-radius: 6px;
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
   font-size: 0.96rem;
   font-weight: 800;
 }
 
 .auth-form .primary-button:hover {
-  background: #064d51;
+  background: var(--theme-primary-strong);
 }
 
 .form-error {
@@ -1532,15 +1787,19 @@ button.student-row[aria-pressed="true"] {
 }
 
 .teacher-page {
+  height: 100dvh;
   min-height: 100vh;
-  background: #fbfaf6;
+  overflow: hidden;
+  background: #f7f6ff;
 }
 
 .teacher-dashboard {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
-  min-height: 100vh;
-  background: #fbfaf6;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: #f7f6ff;
   color: var(--ink);
 }
 
@@ -1549,17 +1808,19 @@ button.student-row[aria-pressed="true"] {
   top: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   border-right: 1px solid var(--line);
-  background: #fbfaf6;
+  background: #f7f6ff;
 }
 
 .teacher-sidebar-scroll {
   display: grid;
   align-content: start;
   gap: 12px;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 28px 22px 24px;
 }
 
@@ -1569,7 +1830,7 @@ button.student-row[aria-pressed="true"] {
 
 .teacher-wordmark {
   display: inline-block;
-  color: #064f54;
+  color: var(--theme-primary);
   font-family: Georgia, "Times New Roman", serif;
   font-size: 3.2rem;
   font-weight: 700;
@@ -1641,14 +1902,14 @@ button.student-row[aria-pressed="true"] {
 
 .teacher-primary-button {
   min-height: 42px;
-  border-color: #075b60;
-  background: #075b60;
+  border-color: var(--theme-primary);
+  background: var(--theme-primary);
   color: white;
   font-weight: 700;
 }
 
 .teacher-primary-button:hover {
-  background: #064d51;
+  background: var(--theme-primary-strong);
 }
 
 .class-form {
@@ -1670,7 +1931,7 @@ button.student-row[aria-pressed="true"] {
   border-radius: 8px;
   background: white;
   padding: 0 14px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.94rem;
   font-weight: 800;
   white-space: nowrap;
@@ -1738,12 +1999,12 @@ button.student-row[aria-pressed="true"] {
 }
 
 .class-row[aria-pressed="true"] {
-  border-color: #d8e5e1;
-  background: #e8f2f0;
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
 }
 
 .class-row[aria-pressed="true"]::before {
-  background: #075b60;
+  background: var(--theme-primary);
 }
 
 .class-row-icon,
@@ -1753,12 +2014,12 @@ button.student-row[aria-pressed="true"] {
   width: 40px;
   height: 40px;
   border-radius: 8px;
-  color: #075b60;
+  color: var(--theme-primary);
   background: #f3efe7;
 }
 
 .class-row[aria-pressed="true"] .class-row-icon {
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
 }
 
@@ -1816,7 +2077,7 @@ button.student-row[aria-pressed="true"] {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
   font-size: 0.9rem;
   font-weight: 800;
@@ -1850,10 +2111,16 @@ button.student-row[aria-pressed="true"] {
 
 .teacher-main {
   min-width: 0;
-  background: #fbfaf6;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background: #f7f6ff;
 }
 
 .teacher-main-inner {
+  min-height: 100%;
   width: 100%;
   padding: 34px 40px 56px;
 }
@@ -1905,7 +2172,7 @@ button.student-row[aria-pressed="true"] {
 
 .class-code strong {
   margin-left: 5px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.88rem;
   font-weight: 800;
 }
@@ -1936,6 +2203,25 @@ button.student-row[aria-pressed="true"] {
   padding: 34px 40px 0;
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
+}
+
+.teacher-sticky-chrome::after {
+  position: absolute;
+  right: 0;
+  bottom: -64px;
+  left: 0;
+  z-index: 0;
+  height: 64px;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(180deg, rgba(216, 224, 255, 0.58), rgba(233, 237, 255, 0.28) 42%, rgba(247, 246, 255, 0)),
+    radial-gradient(ellipse at 82% 0%, rgba(168, 184, 245, 0.28), transparent 54%);
+}
+
+.teacher-sticky-chrome > * {
+  position: relative;
+  z-index: 1;
 }
 
 .tab-list {
@@ -1986,7 +2272,7 @@ button.student-row[aria-pressed="true"] {
 }
 
 .tab-list button[aria-selected="true"]::after {
-  background: #075b60;
+  background: var(--theme-primary);
 }
 
 .teacher-content-block {
@@ -2086,8 +2372,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .overview-metric-card.tinted {
-  border-color: #c8dfdc;
-  background: #edf7f5;
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
 }
 
 .overview-metric-icon {
@@ -2096,7 +2382,7 @@ button.student-row[aria-pressed="true"] {
   width: 31px;
   height: 31px;
   flex: 0 0 auto;
-  color: #075b60;
+  color: var(--theme-primary);
 }
 
 .overview-metric-card:nth-child(2) .overview-metric-icon {
@@ -2187,11 +2473,11 @@ button.student-row[aria-pressed="true"] {
   display: inline-flex;
   align-items: center;
   min-height: 32px;
-  border: 1px solid #b8d8d6;
+  border: 1px solid var(--theme-primary-ring);
   border-radius: 6px;
-  background: #e8f5f3;
+  background: var(--theme-primary-soft);
   padding: 0 15px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.82rem;
   font-weight: 800;
 }
@@ -2271,7 +2557,7 @@ button.student-row[aria-pressed="true"] {
 
 .overview-row-icon.note,
 .overview-row-icon.chat {
-  color: #087074;
+  color: var(--theme-primary);
 }
 
 .priority-row strong,
@@ -2365,7 +2651,7 @@ button.student-row[aria-pressed="true"] {
   border-radius: 6px;
   background: white;
   padding: 0 13px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.78rem;
   font-weight: 850;
   white-space: nowrap;
@@ -2373,8 +2659,8 @@ button.student-row[aria-pressed="true"] {
 
 .overview-filled-action,
 .overview-review-button {
-  border-color: #075b60;
-  background: #075b60;
+  border-color: var(--theme-primary);
+  background: var(--theme-primary);
   color: white;
 }
 
@@ -2478,7 +2764,7 @@ button.student-row[aria-pressed="true"] {
 .next-action-tile span {
   display: inline-grid;
   place-items: center;
-  color: #075b60;
+  color: var(--theme-primary);
 }
 
 .next-action-copy {
@@ -2567,9 +2853,9 @@ button.student-row[aria-pressed="true"] {
 
 .insights-generate-button {
   min-height: 40px;
-  border: 1px solid #075b60;
+  border: 1px solid var(--theme-primary);
   border-radius: 8px;
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
   padding: 0 16px;
   font-size: 0.82rem;
@@ -2577,8 +2863,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .insights-generate-button:disabled {
-  border-color: #9bbec0;
-  background: #8aafb2;
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
   cursor: wait;
 }
 
@@ -2610,7 +2896,7 @@ button.student-row[aria-pressed="true"] {
 }
 
 .insights-time-filters button[aria-pressed="true"] {
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
 }
 
@@ -2640,15 +2926,15 @@ button.student-row[aria-pressed="true"] {
 }
 
 .insight-metric-card.teal .insight-metric-icon {
-  color: #087074;
+  color: var(--theme-primary);
 }
 
-.insight-metric-card.orange .insight-metric-icon {
+.insight-metric-card.neutral .insight-metric-icon {
   color: #53606d;
 }
 
 .insight-metric-card.gold .insight-metric-icon {
-  color: #075b60;
+  color: var(--theme-primary);
 }
 
 .insight-metric-copy {
@@ -2734,7 +3020,7 @@ button.student-row[aria-pressed="true"] {
 }
 
 .insight-feedback-actions svg {
-  color: #075b60;
+  color: var(--theme-primary);
 }
 
 .insight-evidence-chip-list {
@@ -2749,11 +3035,11 @@ button.student-row[aria-pressed="true"] {
   align-items: center;
   gap: 7px;
   min-height: 30px;
-  border: 1px solid #b8d8d6;
+  border: 1px solid var(--theme-primary-ring);
   border-radius: 6px;
-  background: #e8f5f3;
+  background: var(--theme-primary-soft);
   padding: 0 12px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.82rem;
   font-weight: 800;
 }
@@ -2782,7 +3068,7 @@ button.student-row[aria-pressed="true"] {
   display: grid;
   align-items: start;
   gap: 14px;
-  border-bottom: 1px solid #e8e1d7;
+  border-bottom: 1px solid var(--line);
   min-width: 0;
 }
 
@@ -2803,6 +3089,10 @@ button.student-row[aria-pressed="true"] {
   align-items: center;
   min-height: 32px;
   padding: 0;
+}
+
+.insights-table-header span {
+  white-space: nowrap;
 }
 
 .trend-name-cell {
@@ -2879,7 +3169,7 @@ button.student-row[aria-pressed="true"] {
   border: 0;
   background: transparent;
   padding: 0;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.83rem;
   font-weight: 850;
   line-height: 1.2;
@@ -2898,13 +3188,13 @@ button.student-row[aria-pressed="true"] {
   display: flex;
   align-items: center;
   min-height: 48px;
-  border-top: 1px solid #e8e1d7;
+  border-top: 1px solid var(--line);
 }
 
 .insight-empty-card {
   border: 1px dashed #d8cfc2;
   border-radius: 8px;
-  background: #fffefb;
+  background: #ffffff;
   padding: 14px;
 }
 
@@ -2915,16 +3205,27 @@ button.student-row[aria-pressed="true"] {
 }
 
 .timeline-row {
-  grid-template-columns: minmax(0, 1.4fr) 118px 150px 96px;
+  grid-template-columns: minmax(0, 1fr) 118px 196px 68px;
   min-height: 52px;
   padding: 10px 0;
 }
 
 .timeline-row span,
 .evidence-row span {
+  min-width: 0;
   color: #263242;
   font-size: 0.84rem;
   line-height: 1.3;
+}
+
+.timeline-row span[role="columnheader"] {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .insight-status-pill,
@@ -2983,7 +3284,7 @@ button.student-row[aria-pressed="true"] {
   min-height: 58px;
   border: 1px solid #e8e1d7;
   border-radius: 8px;
-  background: #fffefb;
+  background: #ffffff;
   padding: 10px;
 }
 
@@ -3039,7 +3340,7 @@ button.student-row[aria-pressed="true"] {
 
 .recommendation-evidence-link:not(:disabled):hover,
 .insight-link-button:not(:disabled):hover {
-  color: #075b60;
+  color: var(--theme-primary);
   text-decoration: underline;
 }
 
@@ -3052,9 +3353,9 @@ button.student-row[aria-pressed="true"] {
 .recommendation-action,
 .feedback-save-button {
   min-height: 34px;
-  border: 1px solid #075b60;
+  border: 1px solid var(--theme-primary);
   border-radius: 6px;
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
   padding: 0 14px;
   font-size: 0.78rem;
@@ -3075,7 +3376,7 @@ button.student-row[aria-pressed="true"] {
 .recommendation-icon-actions button {
   width: 32px;
   height: 32px;
-  color: #075b60;
+  color: var(--theme-primary);
 }
 
 .recommendation-icon-actions button:last-child {
@@ -3166,14 +3467,14 @@ button.student-row[aria-pressed="true"] {
 }
 
 .conversation-metric-card.teal .conversation-metric-icon {
-  color: #087074;
+  color: var(--theme-primary);
 }
 
 .conversation-metric-card.gold .conversation-metric-icon {
   color: #53606d;
 }
 
-.conversation-metric-card.orange .conversation-metric-icon {
+.conversation-metric-card.neutral .conversation-metric-icon {
   color: #53606d;
 }
 
@@ -3220,8 +3521,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .conversation-chip-list button[aria-pressed="true"] {
-  border-color: #075b60;
-  background: #075b60;
+  border-color: var(--theme-primary);
+  background: var(--theme-primary);
   color: white;
 }
 
@@ -3252,21 +3553,21 @@ button.student-row[aria-pressed="true"] {
   align-items: center;
   gap: 10px;
   width: fit-content;
-  border: 1px solid #b8d8d6;
+  border: 1px solid var(--theme-primary-ring);
   border-radius: 999px;
-  background: #e8f5f3;
+  background: var(--theme-primary-soft);
   padding: 7px 10px 7px 14px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.82rem;
   font-weight: 800;
 }
 
 .conversation-evidence-filter button {
   min-height: 28px;
-  border: 1px solid #b8d8d6;
+  border: 1px solid var(--theme-primary-ring);
   border-radius: 999px;
   background: white;
-  color: #075b60;
+  color: var(--theme-primary);
   padding: 0 10px;
   font-size: 0.76rem;
   font-weight: 800;
@@ -3363,11 +3664,11 @@ button.student-row[aria-pressed="true"] {
 }
 
 .conversation-inbox-row[aria-pressed="true"] {
-  background: #e8f2f0;
+  background: var(--theme-primary-soft);
 }
 
 .conversation-inbox-row[aria-pressed="true"]::before {
-  background: #075b60;
+  background: var(--theme-primary);
 }
 
 .conversation-inbox-primary {
@@ -3437,9 +3738,9 @@ button.student-row[aria-pressed="true"] {
 }
 
 .conversation-status-pill.follow-up {
-  border-color: #ffc9a5;
-  background: #fff2ea;
-  color: #d04f00;
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
+  color: var(--theme-primary);
 }
 
 .conversation-status-pill.reviewed {
@@ -3513,7 +3814,7 @@ button.student-row[aria-pressed="true"] {
   border-radius: 8px;
   background: white;
   padding: 0 10px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.74rem;
   font-weight: 850;
 }
@@ -3570,7 +3871,7 @@ button.student-row[aria-pressed="true"] {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
   font-size: 0.78rem;
   font-weight: 900;
@@ -3618,11 +3919,11 @@ button.student-row[aria-pressed="true"] {
 }
 
 .review-source-pills span {
-  border: 1px solid #b8d8d6;
+  border: 1px solid var(--theme-primary-ring);
   border-radius: 7px;
-  background: #e8f5f3;
+  background: var(--theme-primary-soft);
   padding: 4px 9px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.74rem;
   font-weight: 800;
 }
@@ -3661,7 +3962,7 @@ button.student-row[aria-pressed="true"] {
   border-radius: 6px;
   background: #f8fbfb;
   padding: 0 8px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.72rem;
   font-weight: 850;
   line-height: 1.15;
@@ -3688,8 +3989,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .review-action-grid button[aria-pressed="true"] {
-  border-color: #075b60;
-  background: #075b60;
+  border-color: var(--theme-primary);
+  background: var(--theme-primary);
   color: white;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.36);
 }
@@ -3701,8 +4002,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .review-side-panel textarea.highlighted {
-  border-color: #075b60;
-  box-shadow: 0 0 0 3px rgba(7, 91, 96, 0.14);
+  border-color: var(--theme-primary);
+  box-shadow: 0 0 0 3px var(--theme-primary-shadow);
 }
 
 .review-note-actions {
@@ -3712,8 +4013,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .review-note-actions button {
-  border-color: #075b60;
-  background: #075b60;
+  border-color: var(--theme-primary);
+  background: var(--theme-primary);
   color: white;
 }
 
@@ -3760,7 +4061,7 @@ button.student-row[aria-pressed="true"] {
 }
 
 .conversation-summary-card strong {
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.92rem;
   line-height: 1.2;
 }
@@ -3816,7 +4117,7 @@ button.student-row[aria-pressed="true"] {
   border-radius: 999px;
   background: #f6f4f0;
   padding: 0 10px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.74rem;
   font-weight: 850;
 }
@@ -3865,7 +4166,7 @@ button.student-row[aria-pressed="true"] {
   border: 1px dashed #c8d7d4;
   border-radius: 7px;
   background: #f8fbfb;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.75rem;
   font-weight: 850;
 }
@@ -4005,7 +4306,7 @@ button.student-row[aria-pressed="true"] {
 
 .student-list-header {
   border-bottom: 1px solid var(--line);
-  background: #fbfaf6;
+  background: #f7f6ff;
   padding: 12px 22px;
   color: #64707d;
   font-size: 0.76rem;
@@ -4086,7 +4387,7 @@ button.student-row[aria-pressed="true"] {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
-  color: #075b60;
+  color: var(--theme-primary);
   padding: 0;
 }
 
@@ -4203,8 +4504,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .roster-filter-list button[aria-pressed="true"] {
-  border-color: #075b60;
-  background: #075b60;
+  border-color: var(--theme-primary);
+  background: var(--theme-primary);
   color: white;
 }
 
@@ -4214,7 +4515,7 @@ button.student-row[aria-pressed="true"] {
   gap: 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  background: #fffefb;
+  background: #ffffff;
 }
 
 .roster-check-label,
@@ -4253,7 +4554,7 @@ button.student-row[aria-pressed="true"] {
 .roster-table-header {
   min-height: 52px;
   border-bottom: 1px solid var(--line);
-  background: #fbfaf6;
+  background: #f7f6ff;
   color: #53606d;
   font-size: 0.68rem;
   font-weight: 800;
@@ -4332,7 +4633,7 @@ button.student-row[aria-pressed="true"] {
 .roster-check-label input[type="checkbox"] {
   width: 20px;
   height: 20px;
-  accent-color: #075b60;
+  accent-color: var(--theme-primary);
 }
 
 .roster-status-pill {
@@ -4414,8 +4715,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .roster-pagination button[aria-current="page"] {
-  border-color: #075b60;
-  color: #075b60;
+  border-color: var(--theme-primary);
+  color: var(--theme-primary);
   font-weight: 800;
 }
 
@@ -4516,7 +4817,7 @@ button.student-row[aria-pressed="true"] {
 .student-detail-card-heading button {
   border: 0;
   background: transparent;
-  color: #075b60;
+  color: var(--theme-primary);
   padding: 0;
   font-size: 0.82rem;
   font-weight: 800;
@@ -4600,7 +4901,7 @@ button.student-row[aria-pressed="true"] {
   border-radius: 8px;
   background: #f2fbf9;
   padding: 8px 10px;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 0.8rem;
   line-height: 1.35;
 }
@@ -4625,7 +4926,7 @@ button.student-row[aria-pressed="true"] {
 .learning-profile-view-tabs button[aria-pressed="true"] {
   border-color: #0f766e;
   background: #eef8f6;
-  color: #075b60;
+  color: var(--theme-primary);
 }
 
 .learning-profile-view-tabs button:disabled {
@@ -4676,7 +4977,7 @@ button.student-row[aria-pressed="true"] {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
-  color: #075b60;
+  color: var(--theme-primary);
   padding: 0 10px;
   font-size: 0.78rem;
   font-weight: 800;
@@ -4811,7 +5112,7 @@ button.student-row[aria-pressed="true"] {
 .settings-page-heading .teacher-primary-button {
   min-width: 132px;
   min-height: 44px;
-  box-shadow: 0 12px 30px rgba(11, 103, 107, 0.16);
+  box-shadow: 0 12px 30px var(--theme-primary-shadow);
 }
 
 .settings-columns {
@@ -5073,8 +5374,8 @@ button.student-row[aria-pressed="true"] {
 }
 
 .knowledge-filter-list button[aria-pressed="true"] {
-  border-color: #075b60;
-  background: #075b60;
+  border-color: var(--theme-primary);
+  background: var(--theme-primary);
   color: white;
 }
 
@@ -5097,7 +5398,7 @@ button.student-row[aria-pressed="true"] {
 
 .knowledge-source-header {
   min-height: 42px;
-  background: #fbfaf6;
+  background: #f7f6ff;
   color: #67717e;
   font-size: 0.75rem;
   font-weight: 800;
@@ -5120,8 +5421,8 @@ button.student-row[aria-pressed="true"] {
   position: relative;
   z-index: 1;
   border: 1px solid #0b7276;
-  background: #edf7f5;
-  box-shadow: inset 3px 0 0 #075b60;
+  background: var(--theme-primary-soft);
+  box-shadow: inset 3px 0 0 var(--theme-primary);
 }
 
 .knowledge-source-title {
@@ -5213,7 +5514,7 @@ button.student-row[aria-pressed="true"] {
 
 .knowledge-icon-button:hover {
   background: #e4efec;
-  color: #075b60;
+  color: var(--theme-primary);
 }
 
 .knowledge-icon-button.danger {
@@ -5245,13 +5546,13 @@ button.student-row[aria-pressed="true"] {
   border: 1px solid var(--line);
   border-radius: 7px;
   background: white;
-  color: #075b60;
+  color: var(--theme-primary);
   padding: 0 8px;
   font-weight: 800;
 }
 
 .knowledge-pagination button[aria-current="page"] {
-  border-color: #075b60;
+  border-color: var(--theme-primary);
   background: #f2fbf9;
 }
 
@@ -5462,7 +5763,7 @@ button.student-row[aria-pressed="true"] {
   height: 100%;
   overflow-y: auto;
   border-left: 1px solid var(--line);
-  background: #fffefb;
+  background: #ffffff;
   box-shadow: -18px 0 46px rgba(20, 25, 35, 0.18);
   padding: 22px;
 }
@@ -5507,7 +5808,7 @@ button.student-row[aria-pressed="true"] {
   min-height: 76px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fbfaf6;
+  background: #f7f6ff;
   padding: 12px;
 }
 
@@ -5813,8 +6114,17 @@ button.student-row[aria-pressed="true"] {
 }
 
 @media (max-width: 820px) {
+  .teacher-page {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
   .teacher-dashboard {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .teacher-sidebar {
@@ -5836,6 +6146,10 @@ button.student-row[aria-pressed="true"] {
 
   .teacher-main-inner {
     padding: 26px 16px 40px;
+  }
+
+  .teacher-main {
+    overflow: visible;
   }
 
   .teacher-sticky-chrome {
@@ -6112,7 +6426,7 @@ button.student-row[aria-pressed="true"] {
 
 .student-workspace-page {
   min-height: 100vh;
-  background: #fbfaf6;
+  background: #f7f6ff;
 }
 
 .student-workspace-shell {
@@ -6130,7 +6444,7 @@ button.student-row[aria-pressed="true"] {
   height: 100vh;
   overflow: hidden;
   border-right: 1px solid #ded7cb;
-  background: #fbfaf6;
+  background: #f7f6ff;
 }
 
 .student-sidebar-scroll {
@@ -6148,7 +6462,7 @@ button.student-row[aria-pressed="true"] {
 }
 
 .student-wordmark {
-  color: #064f54;
+  color: var(--theme-primary);
   font-family: Georgia, "Times New Roman", serif;
   font-size: 2.25rem;
   font-weight: 700;
@@ -6231,7 +6545,7 @@ button.student-row[aria-pressed="true"] {
   border: 1px solid #d6d1c8;
   border-radius: 8px;
   background: white;
-  color: #075b60;
+  color: var(--theme-primary);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 1rem;
   font-weight: 800;
@@ -6240,15 +6554,15 @@ button.student-row[aria-pressed="true"] {
 }
 
 .student-send-button {
-  border: 1px solid #075b60;
+  border: 1px solid var(--theme-primary);
   border-radius: 8px;
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
   font-weight: 700;
 }
 
 .student-send-button:hover {
-  background: #064d51;
+  background: var(--theme-primary-strong);
 }
 
 .student-sidebar-action {
@@ -6355,12 +6669,12 @@ button.student-row[aria-pressed="true"] {
 }
 
 .student-conversation-row[aria-pressed="true"] {
-  border-color: #d8e5e1;
-  background: #e8f2f0;
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
 }
 
 .student-conversation-row[aria-pressed="true"]::before {
-  background: #075b60;
+  background: var(--theme-primary);
 }
 
 .student-conversation-icon {
@@ -6377,7 +6691,7 @@ button.student-row[aria-pressed="true"] {
   content: "";
   width: 16px;
   height: 14px;
-  border: 2px solid #0b5155;
+  border: 2px solid var(--theme-primary);
   border-radius: 3px;
 }
 
@@ -6388,8 +6702,8 @@ button.student-row[aria-pressed="true"] {
   bottom: 11px;
   width: 7px;
   height: 7px;
-  border-bottom: 2px solid #0b5155;
-  border-left: 2px solid #0b5155;
+  border-bottom: 2px solid var(--theme-primary);
+  border-left: 2px solid var(--theme-primary);
   background: #f3efe7;
   transform: skew(-18deg);
 }
@@ -6442,7 +6756,7 @@ button.student-row[aria-pressed="true"] {
   width: 46px;
   height: 46px;
   border-radius: 50%;
-  background: #075b60;
+  background: var(--theme-primary);
   color: white;
   font-size: 0.9rem;
   font-weight: 800;
@@ -6482,7 +6796,7 @@ button.student-row[aria-pressed="true"] {
   min-width: 0;
   height: 100vh;
   overflow: hidden;
-  background: #fbfaf6;
+  background: #f7f6ff;
   padding: 34px 48px 24px;
 }
 
@@ -6543,7 +6857,7 @@ button.student-row[aria-pressed="true"] {
   position: relative;
   width: 18px;
   height: 18px;
-  border: 2px solid #111827;
+  border: 2px solid currentColor;
   border-radius: 50%;
 }
 
@@ -6559,7 +6873,7 @@ button.student-row[aria-pressed="true"] {
   top: 3px;
   width: 4px;
   height: 4px;
-  border: 1.5px solid #111827;
+  border: 1.5px solid currentColor;
   border-radius: 50%;
 }
 
@@ -6567,7 +6881,7 @@ button.student-row[aria-pressed="true"] {
   bottom: 3px;
   width: 9px;
   height: 5px;
-  border: 1.5px solid #111827;
+  border: 1.5px solid currentColor;
   border-radius: 8px 8px 0 0;
 }
 
@@ -6587,7 +6901,7 @@ button.student-row[aria-pressed="true"] {
   max-width: 900px;
   border: 1px solid #ddd6cb;
   border-radius: 8px;
-  background: #fffefb;
+  background: #ffffff;
   padding: 13px 16px;
 }
 
@@ -6703,7 +7017,7 @@ button.student-row[aria-pressed="true"] {
   border: 1px solid #d8d1c5;
   border-radius: 50%;
   background: white;
-  color: #075b60;
+  color: var(--theme-primary);
   font-size: 1.4rem;
   font-weight: 900;
   line-height: 1;
@@ -6753,8 +7067,8 @@ button.student-row[aria-pressed="true"] {
 .student-message-bubble {
   max-width: 100%;
   overflow-x: auto;
-  border-color: #c9e1dc;
-  background: #dfeeea;
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
 }
 
 .assistant-message-bubble .katex,
@@ -6850,6 +7164,57 @@ button.student-row[aria-pressed="true"] {
   margin: 0;
 }
 
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section {
+  --section-accent: rgba(154, 164, 191, 0.84);
+  --section-bg: rgba(14, 20, 39, 0.84);
+  --section-border: rgba(139, 149, 192, 0.18);
+  border: 1px solid var(--section-border);
+  border-left: 3px solid var(--section-accent);
+  background: var(--section-bg);
+  color: var(--text-secondary);
+}
+
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section.hint {
+  --section-accent: #c9a847;
+  --section-bg: rgba(88, 72, 22, 0.24);
+  --section-border: rgba(201, 168, 71, 0.24);
+}
+
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section.formula {
+  --section-accent: #9aa4bf;
+  --section-bg: rgba(17, 23, 42, 0.82);
+  --section-border: rgba(154, 164, 191, 0.2);
+}
+
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section.example {
+  --section-accent: #6fb5e4;
+  --section-bg: rgba(14, 48, 74, 0.24);
+  --section-border: rgba(111, 181, 228, 0.22);
+}
+
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section.explanation,
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section.check-work {
+  --section-accent: #7f8da8;
+  --section-bg: rgba(18, 25, 44, 0.74);
+  --section-border: rgba(127, 141, 168, 0.18);
+}
+
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section.next-step {
+  --section-accent: #58c5bd;
+  --section-bg: rgba(16, 75, 73, 0.22);
+  --section-border: rgba(88, 197, 189, 0.22);
+}
+
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section.source-note {
+  --section-accent: #b79c64;
+  --section-bg: rgba(78, 62, 28, 0.22);
+  --section-border: rgba(183, 156, 100, 0.2);
+}
+
+.student-workspace-shell[data-appearance="dark"] .assistant-structured-section strong {
+  color: var(--text-primary);
+}
+
 .student-workspace-main .message-sources {
   display: flex;
   flex-wrap: wrap;
@@ -6866,9 +7231,9 @@ button.student-row[aria-pressed="true"] {
 }
 
 .student-workspace-main .message-sources span {
-  border: 1px solid #ccdeda;
+  border: 1px solid var(--theme-primary-ring);
   border-radius: 8px;
-  background: #edf4f2;
+  background: var(--theme-primary-soft);
   color: #344a4a;
   padding: 4px 12px;
   font-size: 0.86rem;
@@ -6919,7 +7284,7 @@ button.student-row[aria-pressed="true"] {
   border: 1px solid #ddd6cb;
   border-radius: 8px;
   background: white;
-  color: #075b60;
+  color: var(--theme-primary);
   padding: 0;
   font-size: 1.55rem;
   font-weight: 300;
@@ -7025,4 +7390,1517 @@ button.student-row[aria-pressed="true"] {
   .student-send-button {
     width: 100%;
   }
+}
+
+/* Typography and surface polish shared by teacher and student workspaces. */
+.teacher-page,
+.teacher-dashboard,
+.teacher-main,
+.student-workspace-page,
+.student-workspace-main {
+  background:
+    radial-gradient(circle at 86% 28%, rgba(244, 184, 67, 0.11), transparent 30%),
+    radial-gradient(circle at 91% 82%, rgba(105, 203, 190, 0.12), transparent 34%),
+    radial-gradient(circle at 58% 46%, rgba(255, 247, 224, 0.42), transparent 44%),
+    linear-gradient(112deg, #ffffff 0%, #f1efff 54%, #f6f4ff 100%);
+}
+
+.teacher-dashboard,
+.student-workspace-shell {
+  color: #0b2630;
+}
+
+.teacher-sidebar,
+.student-workspace-sidebar {
+  border-right-color: var(--soft-border);
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.82), rgba(251, 247, 237, 0.88)),
+    rgba(255, 253, 248, 0.72);
+  box-shadow: 12px 0 36px rgba(42, 37, 25, 0.045);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.teacher-sticky-chrome {
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.86), rgba(255, 253, 248, 0.7)),
+    rgba(255, 253, 248, 0.72);
+  box-shadow: 0 18px 40px -34px rgba(42, 37, 25, 0.42);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.teacher-wordmark,
+.student-wordmark {
+  color: var(--theme-primary);
+  font-family: var(--heading-font);
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.46);
+}
+
+.teacher-brand p,
+.student-brand-subtitle,
+.teacher-main-header p,
+.teacher-section-heading span,
+.overview-title-block span,
+.student-main-header p,
+.student-conversation-header p,
+.student-current-class-card > p:not(.eyebrow):not(.form-error):not(.form-success):not(.sidebar-note),
+.student-teacher-instructions p:last-child {
+  color: #536261;
+  font-weight: 500;
+}
+
+.teacher-main-header h1,
+.teacher-section-heading h2,
+.overview-title-block h2,
+.student-main-header h1,
+.student-conversation-header h2,
+.student-current-class-card h2 {
+  color: var(--chandra-heading);
+  font-family: var(--heading-font);
+  font-weight: 700;
+}
+
+.overview-panel h3,
+.knowledge-library-heading h3,
+.knowledge-card-heading h3,
+.settings-card h3,
+.student-detail-heading h3,
+.student-detail-card-heading h4,
+.student-detail-card h4,
+.professor-student-summary h3,
+.professor-chat-heading h3,
+.conversation-summary-card strong,
+.student-timeline-heading h3 {
+  color: #102730;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 760;
+}
+
+.overview-panel h3,
+.knowledge-library-heading h3,
+.knowledge-card-heading h3,
+.settings-card h3,
+.student-detail-heading h3,
+.student-detail-card-heading h4,
+.student-detail-card h4,
+.professor-student-summary h3,
+.professor-chat-heading h3 {
+  text-shadow: none;
+}
+
+.teacher-main-header h1,
+.teacher-section-heading h2,
+.overview-title-block h2,
+.student-main-header h1,
+.student-conversation-header h2 {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.teacher-sidebar .eyebrow,
+.teacher-main .eyebrow,
+.student-sidebar-card .eyebrow,
+.student-conversation-history .eyebrow,
+.student-teacher-instructions .eyebrow,
+.message-meta,
+.student-workspace-main .message-meta,
+.insights-table-header,
+.roster-table-header,
+.knowledge-source-header,
+.student-list-header {
+  color: #68726f;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+}
+
+.teacher-sidebar .field-label,
+.teacher-main .field-label,
+.student-workspace-sidebar .field-label,
+.student-class-code-display span,
+.auth-form .field-label {
+  color: #0b3040;
+  font-weight: 650;
+}
+
+.teacher-sidebar-card,
+.teacher-account-card,
+.overview-metric-card,
+.overview-panel,
+.insight-metric-card,
+.conversation-metric-card,
+.roster-stat-card,
+.roster-table-card,
+.student-detail-panel,
+.student-detail-card,
+.settings-card,
+.knowledge-library-card,
+.knowledge-detail-card,
+.student-sidebar-card,
+.student-account-card,
+.student-teacher-instructions > div,
+.student-composer,
+.assistant-message-bubble,
+.chandra-message-avatar,
+.professor-chat-sidebar,
+.professor-chat-panel,
+.conversation-summary-card,
+.learning-profile-card {
+  border-color: var(--soft-border);
+  background: var(--cream-glass-strong);
+  box-shadow: var(--soft-shadow);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.overview-metric-card,
+.insight-metric-card,
+.conversation-metric-card,
+.roster-stat-card {
+  background: rgba(255, 253, 248, 0.72);
+  box-shadow: none;
+}
+
+.overview-panel,
+.roster-table-card,
+.student-detail-panel,
+.knowledge-library-card,
+.knowledge-detail-card,
+.settings-card,
+.student-sidebar-card,
+.student-account-card,
+.teacher-sidebar-card,
+.teacher-account-card,
+.student-composer,
+.assistant-message-bubble {
+  box-shadow: 0 12px 28px rgba(42, 37, 25, 0.05);
+}
+
+.overview-metric-card.tinted,
+.class-row[aria-pressed="true"],
+.student-conversation-row[aria-pressed="true"],
+.roster-table-row[aria-selected="true"],
+.knowledge-source-row[aria-selected="true"],
+.conversation-inbox-row[aria-pressed="true"] {
+  background: rgba(232, 245, 242, 0.64);
+  box-shadow: none;
+}
+
+.class-row,
+.student-conversation-row,
+.conversation-inbox-row,
+.roster-table-row,
+.knowledge-source-row {
+  background: rgba(255, 253, 248, 0.62);
+}
+
+.class-row:hover,
+.student-conversation-row:hover,
+.conversation-inbox-row:hover,
+.roster-table-row:hover,
+.knowledge-source-row:hover,
+.teacher-action-button:hover,
+.sidebar-create-button:hover,
+.sidebar-signout-button:hover,
+.student-sidebar-action:hover,
+.student-new-mini-button:hover,
+.student-new-chat-button:hover,
+.student-signout-button:hover,
+.student-status-pill:hover {
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 8px 18px rgba(42, 37, 25, 0.04);
+}
+
+.teacher-primary-button,
+.student-send-button,
+.knowledge-filter-list button[aria-pressed="true"] {
+  border-color: var(--theme-primary);
+  background: linear-gradient(180deg, var(--theme-primary), var(--theme-primary-strong));
+  color: white;
+  font-weight: 750;
+  box-shadow: 0 12px 24px var(--theme-primary-shadow);
+}
+
+.teacher-primary-button:hover,
+.student-send-button:hover,
+.knowledge-filter-list button[aria-pressed="true"]:hover {
+  background: linear-gradient(180deg, var(--theme-primary), var(--theme-primary-strong));
+  box-shadow: 0 14px 28px var(--theme-primary-shadow);
+}
+
+.teacher-action-button,
+.sidebar-create-button,
+.sidebar-signout-button,
+.student-sidebar-action,
+.student-new-mini-button,
+.student-new-chat-button,
+.student-status-pill,
+.student-signout-button,
+.overview-date-button,
+.knowledge-filter-list button {
+  border-color: var(--soft-border);
+  background: rgba(255, 253, 248, 0.74);
+  color: #12313a;
+  font-weight: 650;
+}
+
+.tab-list {
+  border-bottom-color: rgba(204, 194, 179, 0.78);
+}
+
+.tab-list button {
+  color: #53615f;
+  font-weight: 600;
+}
+
+.tab-list button:hover {
+  color: var(--theme-primary);
+}
+
+.tab-list button[aria-selected="true"] {
+  color: var(--chandra-heading);
+  font-weight: 700;
+}
+
+.tab-list button[aria-selected="true"]::after {
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(90deg, #4f7cff, var(--theme-primary));
+  box-shadow: 0 0 18px rgba(79, 124, 255, 0.42);
+}
+
+.class-code,
+.count-pill,
+.status,
+.knowledge-badge,
+.student-workspace-main .message-sources span,
+.overview-topic-list span,
+.conversation-status-pill,
+.review-status-pill,
+.source-confidence-pill,
+.roster-status-pill {
+  border-color: rgba(204, 194, 179, 0.74);
+  background: rgba(255, 255, 255, 0.84);
+  color: #314542;
+  font-weight: 650;
+}
+
+.class-heading-actions .class-code,
+.class-heading-actions .teacher-action-button {
+  border-color: var(--soft-border);
+  background: rgba(255, 255, 255, 0.86);
+  color: #12313a;
+}
+
+.class-heading-actions .teacher-action-button:hover {
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.status.ok,
+.knowledge-badge.active,
+.knowledge-badge.ready {
+  border-color: rgba(93, 161, 125, 0.38);
+  background: rgba(229, 247, 233, 0.82);
+  color: #145f38;
+}
+
+.knowledge-badge.processing,
+.knowledge-badge.review {
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
+  color: var(--theme-primary);
+}
+
+.knowledge-badge.teacher-only {
+  border-color: rgba(88, 128, 180, 0.32);
+  background: rgba(234, 242, 255, 0.74);
+  color: #235489;
+}
+
+.roster-table-header {
+  background: var(--theme-primary-soft);
+  color: #65706d;
+  font-weight: 750;
+}
+
+.knowledge-source-header,
+.insights-table-header {
+  background: transparent;
+  color: #65706d;
+  font-weight: 750;
+}
+
+.class-row-copy strong,
+.material-copy strong,
+.student-row strong,
+.student-conversation-copy strong,
+.teacher-account-copy strong,
+.student-account-copy strong,
+.roster-student-cell strong {
+  color: #102730;
+  font-weight: 720;
+}
+
+.class-row-copy span,
+.material-copy span,
+.student-row span,
+.student-conversation-copy span,
+.teacher-account-copy span,
+.student-account-copy span,
+.roster-student-cell span,
+.student-main-header h1 span:last-child,
+.student-current-class-card h2 span:last-child {
+  color: #66716f;
+  font-weight: 500;
+}
+
+.overview-metric-copy strong,
+.insight-metric-card strong,
+.conversation-metric-card strong,
+.roster-stat-card strong {
+  color: #102730;
+  font-weight: 680;
+}
+
+.overview-metric-copy span,
+.conversation-metric-card em,
+.roster-stat-card span,
+.roster-cell,
+.knowledge-source-cell {
+  color: #40504f;
+}
+
+.class-row[aria-pressed="true"]::before,
+.student-conversation-row[aria-pressed="true"]::before,
+.conversation-inbox-row[aria-pressed="true"]::before {
+  background: var(--theme-primary);
+}
+
+.class-row[aria-pressed="true"] .class-row-copy strong,
+.student-conversation-row[aria-pressed="true"] .student-conversation-copy strong,
+.conversation-inbox-row[aria-pressed="true"] strong,
+.roster-table-row[aria-selected="true"] strong,
+.knowledge-source-row[aria-selected="true"] strong {
+  color: var(--chandra-heading);
+}
+
+.student-class-code-display strong,
+.teacher-sidebar input,
+.teacher-main input,
+.teacher-main textarea,
+.student-composer textarea {
+  border-color: #cbd3d1;
+  background: rgba(255, 255, 255, 0.64);
+  color: #0b3040;
+  box-shadow: inset 0 1px 2px rgba(7, 17, 31, 0.04);
+}
+
+.teacher-sidebar input:focus,
+.teacher-main input:focus,
+.teacher-main textarea:focus,
+.student-composer textarea:focus {
+  border-color: var(--theme-primary);
+  outline: 2px solid var(--theme-primary-ring);
+}
+
+.assistant-message-bubble {
+  color: #1a2d34;
+}
+
+.student-message-bubble {
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
+  color: #12313a;
+  box-shadow: 0 10px 24px var(--theme-primary-shadow);
+}
+
+.assistant-structured-section {
+  color: #2f4145;
+}
+
+.assistant-structured-section strong {
+  color: #3f5657;
+  font-weight: 700;
+}
+
+.conversation-inbox-panel,
+.review-side-panel {
+  border-color: var(--soft-border);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+}
+
+.transcript-viewer-panel {
+  border-color: var(--soft-border);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 28px rgba(42, 37, 25, 0.055);
+}
+
+.conversation-panel-heading h3,
+.review-side-panel h3 {
+  color: #102730;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 760;
+}
+
+.transcript-header h3 {
+  color: var(--chandra-heading);
+  font-family: var(--heading-font);
+  font-weight: 700;
+}
+
+.conversation-chip-list button,
+.transcript-header-actions button,
+.review-note-actions button,
+.student-timeline-heading button {
+  border-color: var(--soft-border);
+  background: rgba(255, 255, 255, 0.72);
+  color: #314542;
+  font-weight: 700;
+}
+
+.conversation-chip-list button:hover,
+.transcript-header-actions button:hover,
+.review-note-actions button:hover,
+.student-timeline-heading button:hover {
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--theme-primary);
+}
+
+.conversation-chip-list button[aria-pressed="true"] {
+  border-color: var(--theme-primary);
+  background: linear-gradient(180deg, var(--theme-primary), var(--theme-primary-strong));
+  color: white;
+  box-shadow: 0 8px 18px var(--theme-primary-shadow);
+}
+
+.conversation-control-row select,
+.conversation-search,
+.roster-search,
+.knowledge-priority-control select,
+.settings-card input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.settings-card select,
+.settings-card textarea {
+  border-color: #cbd3d1;
+  background: rgba(255, 255, 255, 0.66);
+  color: #0b3040;
+  box-shadow: inset 0 1px 2px rgba(7, 17, 31, 0.035);
+}
+
+.conversation-inbox-primary strong {
+  color: #102730;
+  font-weight: 760;
+}
+
+.conversation-inbox-meta span,
+.transcript-header span,
+.review-readonly-footer,
+.conversation-panel-heading span {
+  color: #65706d;
+  font-weight: 650;
+}
+
+.review-message-bubble {
+  border-color: var(--soft-border);
+  background: rgba(255, 255, 255, 0.88);
+  color: #1a2d34;
+  box-shadow: 0 8px 18px rgba(42, 37, 25, 0.035);
+}
+
+.review-message.student .review-message-bubble {
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
+}
+
+.review-source-pills span,
+.transcript-chip-row span,
+.source-audit-heading span {
+  border-color: rgba(204, 194, 179, 0.72);
+  background: rgba(255, 255, 255, 0.78);
+  color: #435452;
+  font-weight: 650;
+}
+
+.teacher-dashboard,
+.student-workspace-shell {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(247, 246, 255, 0.96)),
+    #f7f6ff;
+}
+
+.teacher-dashboard::before,
+.student-workspace-shell::before {
+  position: absolute;
+  z-index: 0;
+  inset: 116px 0 auto 320px;
+  height: 270px;
+  pointer-events: none;
+  content: "";
+  background:
+    radial-gradient(ellipse at 84% 12%, rgba(168, 184, 245, 0.34), transparent 54%),
+    radial-gradient(ellipse at 55% 86%, rgba(217, 211, 255, 0.42), transparent 58%),
+    linear-gradient(112deg, rgba(255, 255, 255, 0) 4%, rgba(224, 229, 255, 0.58) 56%, rgba(237, 232, 255, 0.54) 100%);
+  clip-path: ellipse(78% 52% at 66% 0%);
+}
+
+.teacher-dashboard::after,
+.student-workspace-shell::after {
+  position: absolute;
+  z-index: 0;
+  inset: 188px 0 0 320px;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(180deg, rgba(239, 236, 255, 0.52), rgba(247, 246, 255, 0.7) 42%, rgba(247, 246, 255, 0.95)),
+    radial-gradient(ellipse at 88% 10%, rgba(213, 221, 255, 0.22), transparent 48%);
+}
+
+.student-workspace-shell::before {
+  left: 350px;
+}
+
+.student-workspace-shell::after {
+  left: 350px;
+}
+
+.teacher-sidebar,
+.teacher-main,
+.student-workspace-sidebar,
+.student-workspace-main {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+.teacher-sidebar,
+.student-workspace-sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(246, 245, 255, 0.9)),
+    rgba(255, 255, 255, 0.72);
+  box-shadow: 12px 0 38px rgba(50, 46, 100, 0.055);
+}
+
+.teacher-sticky-chrome {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(250, 249, 255, 0.74)),
+    rgba(255, 255, 255, 0.72);
+}
+
+.teacher-wordmark {
+  font-size: clamp(3rem, 3.6vw, 3.85rem);
+}
+
+.teacher-main-header h1,
+.teacher-section-heading h2,
+.overview-title-block h2,
+.student-main-header h1,
+.student-conversation-header h2,
+.student-current-class-card h2,
+.tab-list button[aria-selected="true"],
+.class-row[aria-pressed="true"] .class-row-copy strong,
+.student-conversation-row[aria-pressed="true"] .student-conversation-copy strong,
+.conversation-inbox-row[aria-pressed="true"] strong,
+.roster-table-row[aria-selected="true"] strong,
+.knowledge-source-row[aria-selected="true"] strong {
+  color: var(--chandra-heading);
+}
+
+.teacher-primary-button,
+.student-send-button,
+.overview-filled-action,
+.overview-review-button,
+.insights-generate-button,
+.insights-time-filters button[aria-pressed="true"],
+.feedback-save-button,
+.conversation-chip-list button[aria-pressed="true"],
+.knowledge-filter-list button[aria-pressed="true"],
+.settings-choice-pill input:checked + span,
+.settings-model-pill.selected {
+  border-color: var(--theme-primary);
+  background: var(--theme-primary-gradient);
+  color: white;
+  box-shadow: 0 12px 24px var(--theme-primary-shadow);
+}
+
+.teacher-primary-button:hover,
+.student-send-button:hover,
+.knowledge-filter-list button[aria-pressed="true"]:hover {
+  background: linear-gradient(180deg, var(--theme-primary), var(--theme-primary-strong));
+}
+
+.teacher-wordmark,
+.student-wordmark,
+.sidebar-create-button,
+.class-code strong,
+.overview-metric-icon,
+.overview-small-action,
+.next-action-tile span,
+.insight-feedback-actions svg,
+.insight-evidence-chip,
+.settings-slider-heading strong,
+.student-class-code-display strong,
+.chandra-message-avatar,
+.student-composer-add,
+.conversation-chip-list button:hover,
+.transcript-header-actions button:hover,
+.review-note-actions button:hover,
+.student-timeline-heading button:hover,
+.tab-list button:hover {
+  color: var(--theme-primary);
+}
+
+.class-row[aria-pressed="true"],
+.student-conversation-row[aria-pressed="true"],
+.roster-table-row[aria-selected="true"],
+.knowledge-source-row[aria-selected="true"],
+.conversation-inbox-row[aria-pressed="true"],
+.overview-metric-card.tinted,
+.overview-topic-list span,
+.insight-evidence-chip,
+.student-message-bubble,
+.review-message.student .review-message-bubble,
+.student-workspace-main .message-sources span {
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
+}
+
+.class-row[aria-pressed="true"]::before,
+.student-conversation-row[aria-pressed="true"]::before,
+.conversation-inbox-row[aria-pressed="true"]::before,
+.tab-list button[aria-selected="true"]::after,
+.settings-toggle-row input:checked + .settings-toggle-switch,
+.knowledge-toggle-row input:checked + .settings-toggle-switch,
+.teacher-avatar,
+.student-avatar,
+.class-row[aria-pressed="true"] .class-row-icon {
+  background: var(--theme-primary);
+}
+
+.class-row-icon,
+.student-conversation-icon {
+  background: rgba(244, 243, 255, 0.92);
+  color: var(--theme-primary);
+}
+
+.student-conversation-icon::before,
+.student-conversation-icon::after {
+  border-color: var(--theme-primary);
+}
+
+.student-conversation-icon::after {
+  background: rgba(244, 243, 255, 0.92);
+}
+
+.teacher-sidebar-card,
+.teacher-account-card,
+.overview-metric-card,
+.overview-panel,
+.insight-metric-card,
+.conversation-metric-card,
+.roster-stat-card,
+.roster-table-card,
+.student-detail-panel,
+.student-detail-card,
+.settings-card,
+.knowledge-library-card,
+.knowledge-detail-card,
+.student-sidebar-card,
+.student-account-card,
+.student-teacher-instructions > div,
+.student-composer,
+.assistant-message-bubble,
+.chandra-message-avatar,
+.professor-chat-sidebar,
+.professor-chat-panel,
+.conversation-summary-card,
+.learning-profile-card {
+  border-color: var(--soft-border);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: var(--soft-shadow);
+}
+
+.settings-card {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.settings-page-heading .teacher-primary-button {
+  box-shadow: 0 14px 30px var(--theme-primary-shadow);
+}
+
+.teacher-sidebar input:focus,
+.teacher-main input:focus,
+.teacher-main textarea:focus,
+.teacher-main select:focus,
+.student-composer textarea:focus {
+  border-color: var(--theme-primary);
+  outline: 2px solid var(--theme-primary-ring);
+}
+
+.settings-slider {
+  accent-color: var(--theme-primary);
+}
+
+.settings-theme-control {
+  display: grid;
+  gap: 9px;
+}
+
+.settings-theme-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-appearance-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.settings-theme-swatch {
+  position: relative;
+}
+
+.settings-theme-swatch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-theme-swatch > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  border: 1px solid var(--soft-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0 10px;
+  color: #172033;
+  font-size: 0.76rem;
+  font-weight: 760;
+}
+
+.settings-theme-swatch-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
+}
+
+.settings-theme-swatch input:checked + span {
+  border-color: var(--theme-primary);
+  background: var(--theme-primary-soft);
+  color: var(--theme-primary);
+  box-shadow: 0 0 0 3px var(--theme-primary-ring);
+}
+
+.student-theme-preferences {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.student-theme-preferences .settings-theme-swatches {
+  gap: 7px;
+}
+
+.student-theme-preferences .settings-theme-swatch > span {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 0.74rem;
+}
+
+@media (max-width: 900px) {
+  .teacher-dashboard::before,
+  .teacher-dashboard::after,
+  .student-workspace-shell::before,
+  .student-workspace-shell::after {
+    left: 0;
+  }
+}
+
+.teacher-dashboard[data-appearance],
+.student-workspace-shell[data-appearance] {
+  background: var(--app-bg-layer);
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance]::before,
+.student-workspace-shell[data-appearance]::before {
+  background: var(--wave-main);
+}
+
+.teacher-dashboard[data-appearance]::after,
+.student-workspace-shell[data-appearance]::after {
+  background: var(--content-wash);
+}
+
+.teacher-dashboard[data-appearance] .teacher-sidebar,
+.student-workspace-shell[data-appearance] .student-workspace-sidebar {
+  border-right-color: var(--card-border);
+  background: var(--sidebar-bg);
+  box-shadow: var(--sidebar-shadow);
+}
+
+.teacher-dashboard[data-appearance] .teacher-main,
+.student-workspace-shell[data-appearance] .student-workspace-main {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance] .teacher-sticky-chrome {
+  background: var(--sticky-header-bg);
+  box-shadow: 0 18px 40px -34px var(--theme-primary-shadow);
+}
+
+.teacher-dashboard[data-appearance] .teacher-main-header h1,
+.teacher-dashboard[data-appearance] .teacher-section-heading h2,
+.teacher-dashboard[data-appearance] .overview-title-block h2,
+.student-workspace-shell[data-appearance] .student-main-header h1,
+.student-workspace-shell[data-appearance] .student-conversation-header h2,
+.student-workspace-shell[data-appearance] .student-current-class-card h2,
+.teacher-dashboard[data-appearance] .settings-card h3,
+.teacher-dashboard[data-appearance] .overview-panel h3,
+.teacher-dashboard[data-appearance] .knowledge-library-heading h3,
+.teacher-dashboard[data-appearance] .knowledge-card-heading h3,
+.teacher-dashboard[data-appearance] .conversation-panel-heading h3,
+.teacher-dashboard[data-appearance] .review-side-panel h3,
+.teacher-dashboard[data-appearance] .transcript-header h3,
+.student-workspace-shell[data-appearance] .student-detail-heading h3,
+.student-workspace-shell[data-appearance] .student-detail-card h4 {
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance] .teacher-main-header p,
+.teacher-dashboard[data-appearance] .teacher-section-heading span,
+.teacher-dashboard[data-appearance] .overview-title-block span,
+.teacher-dashboard[data-appearance] .settings-card p,
+.teacher-dashboard[data-appearance] .class-row-copy span,
+.teacher-dashboard[data-appearance] .material-copy span,
+.teacher-dashboard[data-appearance] .student-row span,
+.teacher-dashboard[data-appearance] .teacher-account-copy span,
+.teacher-dashboard[data-appearance] .conversation-inbox-meta span,
+.teacher-dashboard[data-appearance] .transcript-header span,
+.teacher-dashboard[data-appearance] .review-readonly-footer,
+.teacher-dashboard[data-appearance] .conversation-panel-heading span,
+.student-workspace-shell[data-appearance] .student-main-header p,
+.student-workspace-shell[data-appearance] .student-conversation-header p,
+.student-workspace-shell[data-appearance] .student-current-class-card > p:not(.eyebrow):not(.form-error):not(.form-success):not(.sidebar-note),
+.student-workspace-shell[data-appearance] .student-current-class-card h2 span:last-child,
+.student-workspace-shell[data-appearance] .student-conversation-copy span,
+.student-workspace-shell[data-appearance] .student-account-copy span,
+.student-workspace-shell[data-appearance] .student-teacher-instructions p:last-child,
+.student-workspace-shell[data-appearance] .message-sources,
+.student-workspace-shell[data-appearance] .message-sources strong,
+.student-workspace-shell[data-appearance] .message-meta {
+  color: var(--text-muted);
+}
+
+.teacher-dashboard[data-appearance] .teacher-sidebar .eyebrow,
+.teacher-dashboard[data-appearance] .teacher-main .eyebrow,
+.student-workspace-shell[data-appearance] .student-sidebar-card .eyebrow,
+.student-workspace-shell[data-appearance] .student-conversation-history .eyebrow,
+.student-workspace-shell[data-appearance] .student-teacher-instructions .eyebrow,
+.teacher-dashboard[data-appearance] .settings-card .field-label,
+.teacher-dashboard[data-appearance] .settings-control-label,
+.teacher-dashboard[data-appearance] .teacher-sidebar .field-label,
+.teacher-dashboard[data-appearance] .teacher-main .field-label,
+.student-workspace-shell[data-appearance] .student-workspace-sidebar .field-label,
+.student-workspace-shell[data-appearance] .student-class-code-display span {
+  color: var(--text-secondary);
+}
+
+.teacher-dashboard[data-appearance] .teacher-sidebar-card,
+.teacher-dashboard[data-appearance] .teacher-account-card,
+.teacher-dashboard[data-appearance] .overview-metric-card,
+.teacher-dashboard[data-appearance] .overview-panel,
+.teacher-dashboard[data-appearance] .insight-metric-card,
+.teacher-dashboard[data-appearance] .conversation-metric-card,
+.teacher-dashboard[data-appearance] .roster-stat-card,
+.teacher-dashboard[data-appearance] .roster-table-card,
+.teacher-dashboard[data-appearance] .student-detail-panel,
+.teacher-dashboard[data-appearance] .student-detail-card,
+.teacher-dashboard[data-appearance] .settings-card,
+.teacher-dashboard[data-appearance] .knowledge-library-card,
+.teacher-dashboard[data-appearance] .knowledge-detail-card,
+.teacher-dashboard[data-appearance] .professor-chat-sidebar,
+.teacher-dashboard[data-appearance] .professor-chat-panel,
+.teacher-dashboard[data-appearance] .conversation-summary-card,
+.teacher-dashboard[data-appearance] .learning-profile-card,
+.teacher-dashboard[data-appearance] .conversation-inbox-panel,
+.teacher-dashboard[data-appearance] .review-side-panel,
+.teacher-dashboard[data-appearance] .transcript-viewer-panel,
+.student-workspace-shell[data-appearance] .student-sidebar-card,
+.student-workspace-shell[data-appearance] .student-account-card,
+.student-workspace-shell[data-appearance] .student-teacher-instructions > div,
+.student-workspace-shell[data-appearance] .student-composer,
+.student-workspace-shell[data-appearance] .assistant-message-bubble,
+.student-workspace-shell[data-appearance] .chandra-message-avatar {
+  border-color: var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--app-shadow);
+}
+
+.teacher-dashboard[data-appearance] .settings-card,
+.teacher-dashboard[data-appearance] .transcript-viewer-panel,
+.student-workspace-shell[data-appearance] .student-composer {
+  background: var(--card-bg-strong);
+}
+
+.teacher-dashboard[data-appearance] input:not([type="checkbox"]):not([type="radio"]),
+.teacher-dashboard[data-appearance] select,
+.teacher-dashboard[data-appearance] textarea,
+.student-workspace-shell[data-appearance] input:not([type="checkbox"]):not([type="radio"]),
+.student-workspace-shell[data-appearance] select,
+.student-workspace-shell[data-appearance] textarea,
+.student-workspace-shell[data-appearance] .student-class-code-display strong {
+  border-color: var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.teacher-dashboard[data-appearance] input::placeholder,
+.teacher-dashboard[data-appearance] textarea::placeholder,
+.student-workspace-shell[data-appearance] input::placeholder,
+.student-workspace-shell[data-appearance] textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.78;
+}
+
+.teacher-dashboard[data-appearance] input:focus,
+.teacher-dashboard[data-appearance] select:focus,
+.teacher-dashboard[data-appearance] textarea:focus,
+.student-workspace-shell[data-appearance] input:focus,
+.student-workspace-shell[data-appearance] select:focus,
+.student-workspace-shell[data-appearance] textarea:focus {
+  border-color: var(--theme-primary);
+  outline: 2px solid var(--focus-ring);
+}
+
+.teacher-dashboard[data-appearance] .class-row,
+.teacher-dashboard[data-appearance] .student-row,
+.teacher-dashboard[data-appearance] .material-row,
+.teacher-dashboard[data-appearance] .conversation-inbox-row,
+.teacher-dashboard[data-appearance] .roster-table-row,
+.teacher-dashboard[data-appearance] .knowledge-source-row,
+.student-workspace-shell[data-appearance] .student-conversation-row {
+  border-color: var(--card-border);
+  background: var(--row-bg);
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance] .class-row:hover,
+.teacher-dashboard[data-appearance] .student-row:hover,
+.teacher-dashboard[data-appearance] .material-row:hover,
+.teacher-dashboard[data-appearance] .conversation-inbox-row:hover,
+.teacher-dashboard[data-appearance] .roster-table-row:hover,
+.teacher-dashboard[data-appearance] .knowledge-source-row:hover,
+.student-workspace-shell[data-appearance] .student-conversation-row:hover {
+  background: var(--row-hover-bg);
+}
+
+.teacher-dashboard[data-appearance] .class-row[aria-pressed="true"],
+.teacher-dashboard[data-appearance] .roster-table-row[aria-selected="true"],
+.teacher-dashboard[data-appearance] .knowledge-source-row[aria-selected="true"],
+.teacher-dashboard[data-appearance] .conversation-inbox-row[aria-pressed="true"],
+.student-workspace-shell[data-appearance] .student-conversation-row[aria-pressed="true"] {
+  border-color: var(--selected-row-border);
+  background: var(--selected-row-bg);
+}
+
+.teacher-dashboard[data-appearance] .class-row-copy strong,
+.teacher-dashboard[data-appearance] .material-copy strong,
+.teacher-dashboard[data-appearance] .student-row strong,
+.teacher-dashboard[data-appearance] .conversation-inbox-primary strong,
+.teacher-dashboard[data-appearance] .teacher-account-copy strong,
+.teacher-dashboard[data-appearance] .overview-metric-copy strong,
+.teacher-dashboard[data-appearance] .insight-metric-card strong,
+.teacher-dashboard[data-appearance] .conversation-metric-card strong,
+.teacher-dashboard[data-appearance] .roster-stat-card strong,
+.student-workspace-shell[data-appearance] .student-conversation-copy strong,
+.student-workspace-shell[data-appearance] .student-account-copy strong,
+.student-workspace-shell[data-appearance] .student-instructions-heading {
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance] .overview-metric-copy span,
+.teacher-dashboard[data-appearance] .conversation-metric-card em,
+.teacher-dashboard[data-appearance] .roster-stat-card span,
+.teacher-dashboard[data-appearance] .roster-cell,
+.teacher-dashboard[data-appearance] .knowledge-source-cell,
+.student-workspace-shell[data-appearance] .assistant-message-bubble,
+.student-workspace-shell[data-appearance] .student-message-bubble,
+.teacher-dashboard[data-appearance] .review-message-bubble,
+.teacher-dashboard[data-appearance] .assistant-structured-section {
+  color: var(--text-secondary);
+}
+
+.teacher-dashboard[data-appearance] .teacher-action-button,
+.teacher-dashboard[data-appearance] .sidebar-create-button,
+.teacher-dashboard[data-appearance] .sidebar-signout-button,
+.teacher-dashboard[data-appearance] .overview-date-button,
+.teacher-dashboard[data-appearance] .knowledge-filter-list button,
+.teacher-dashboard[data-appearance] .conversation-chip-list button,
+.teacher-dashboard[data-appearance] .transcript-header-actions button,
+.teacher-dashboard[data-appearance] .review-note-actions button,
+.teacher-dashboard[data-appearance] .student-timeline-heading button,
+.student-workspace-shell[data-appearance] .student-sidebar-action,
+.student-workspace-shell[data-appearance] .student-new-mini-button,
+.student-workspace-shell[data-appearance] .student-new-chat-button,
+.student-workspace-shell[data-appearance] .student-status-pill,
+.student-workspace-shell[data-appearance] .student-signout-button {
+  border-color: var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance] .teacher-action-button:hover,
+.teacher-dashboard[data-appearance] .sidebar-create-button:hover,
+.teacher-dashboard[data-appearance] .sidebar-signout-button:hover,
+.teacher-dashboard[data-appearance] .overview-date-button:hover,
+.teacher-dashboard[data-appearance] .knowledge-filter-list button:hover,
+.teacher-dashboard[data-appearance] .conversation-chip-list button:hover,
+.teacher-dashboard[data-appearance] .transcript-header-actions button:hover,
+.teacher-dashboard[data-appearance] .review-note-actions button:hover,
+.teacher-dashboard[data-appearance] .student-timeline-heading button:hover,
+.student-workspace-shell[data-appearance] .student-sidebar-action:hover,
+.student-workspace-shell[data-appearance] .student-new-mini-button:hover,
+.student-workspace-shell[data-appearance] .student-new-chat-button:hover,
+.student-workspace-shell[data-appearance] .student-status-pill:hover,
+.student-workspace-shell[data-appearance] .student-signout-button:hover {
+  background: var(--row-hover-bg);
+  color: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance] .class-code,
+.teacher-dashboard[data-appearance] .count-pill,
+.teacher-dashboard[data-appearance] .overview-topic-list span,
+.teacher-dashboard[data-appearance] .insight-evidence-chip,
+.teacher-dashboard[data-appearance] .review-source-pills span,
+.teacher-dashboard[data-appearance] .transcript-chip-row span,
+.teacher-dashboard[data-appearance] .source-audit-heading span,
+.student-workspace-shell[data-appearance] .student-workspace-main .message-sources span {
+  border-color: var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+}
+
+.teacher-dashboard[data-appearance] .class-code strong,
+.student-workspace-shell[data-appearance] .student-class-code-display strong,
+.teacher-dashboard[data-appearance] .overview-topic-list span,
+.teacher-dashboard[data-appearance] .insight-evidence-chip {
+  color: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance] .tab-list {
+  border-bottom-color: var(--card-border);
+}
+
+.teacher-dashboard[data-appearance] .tab-list button {
+  color: var(--text-muted);
+}
+
+.teacher-dashboard[data-appearance] .tab-list button[aria-selected="true"] {
+  color: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance] .roster-table-header {
+  border-bottom-color: var(--card-border);
+  background: var(--theme-primary-soft);
+  color: var(--text-secondary);
+}
+
+.teacher-dashboard[data-appearance] .teacher-primary-button,
+.teacher-dashboard[data-appearance] .overview-filled-action,
+.teacher-dashboard[data-appearance] .overview-review-button,
+.teacher-dashboard[data-appearance] .insights-generate-button,
+.teacher-dashboard[data-appearance] .insights-time-filters button[aria-pressed="true"],
+.teacher-dashboard[data-appearance] .feedback-save-button,
+.teacher-dashboard[data-appearance] .conversation-chip-list button[aria-pressed="true"],
+.teacher-dashboard[data-appearance] .knowledge-filter-list button[aria-pressed="true"],
+.teacher-dashboard[data-appearance] .settings-choice-pill input:checked + span,
+.teacher-dashboard[data-appearance] .settings-model-pill.selected,
+.student-workspace-shell[data-appearance] .student-send-button {
+  border-color: var(--theme-primary);
+  background: var(--theme-primary-gradient);
+  color: var(--on-primary);
+  box-shadow: 0 12px 24px var(--theme-primary-shadow);
+}
+
+.teacher-dashboard[data-appearance] .settings-theme-swatch > span,
+.teacher-dashboard[data-appearance] .settings-appearance-pills .settings-choice-pill span,
+.teacher-dashboard[data-appearance] .settings-choice-pill span,
+.teacher-dashboard[data-appearance] .settings-model-pill,
+.student-workspace-shell[data-appearance] .settings-theme-swatch > span,
+.student-workspace-shell[data-appearance] .settings-choice-pill span {
+  border-color: var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance] .settings-choice-pill input:checked + span,
+.teacher-dashboard[data-appearance] .settings-theme-swatch input:checked + span,
+.student-workspace-shell[data-appearance] .settings-choice-pill input:checked + span,
+.student-workspace-shell[data-appearance] .settings-theme-swatch input:checked + span {
+  border-color: var(--theme-primary);
+  background: var(--theme-primary-soft);
+  color: var(--theme-primary);
+  box-shadow: 0 0 0 3px var(--theme-primary-ring);
+}
+
+.teacher-dashboard[data-appearance] .settings-appearance-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.teacher-dashboard[data-appearance] .settings-toggle-switch {
+  border-color: var(--input-border);
+  background: var(--row-hover-bg);
+}
+
+.teacher-dashboard[data-appearance] .settings-toggle-row input:checked + .settings-toggle-switch,
+.teacher-dashboard[data-appearance] .knowledge-toggle-row input:checked + .settings-toggle-switch {
+  border-color: var(--theme-primary);
+  background: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance] .class-row-icon,
+.student-workspace-shell[data-appearance] .student-conversation-icon {
+  background: var(--selected-row-bg);
+  color: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance] .class-row[aria-pressed="true"] .class-row-icon,
+.teacher-dashboard[data-appearance] .teacher-avatar,
+.student-workspace-shell[data-appearance] .student-avatar {
+  background: var(--theme-primary);
+  color: var(--on-primary);
+}
+
+.student-workspace-shell[data-appearance] .student-conversation-icon::after {
+  background: var(--selected-row-bg);
+}
+
+.student-workspace-shell[data-appearance] .student-message-bubble,
+.teacher-dashboard[data-appearance] .review-message.student .review-message-bubble {
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
+  box-shadow: 0 10px 24px var(--theme-primary-shadow);
+}
+
+.student-workspace-shell[data-appearance] .chandra-message-avatar {
+  color: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .class-row[aria-pressed="true"] .class-row-copy strong,
+.teacher-dashboard[data-appearance="dark"] .roster-table-row[aria-selected="true"] strong,
+.teacher-dashboard[data-appearance="dark"] .knowledge-source-row[aria-selected="true"] strong,
+.teacher-dashboard[data-appearance="dark"] .conversation-inbox-row[aria-pressed="true"] strong,
+.student-workspace-shell[data-appearance="dark"] .student-conversation-row[aria-pressed="true"] .student-conversation-copy strong {
+  color: var(--on-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .class-code,
+.teacher-dashboard[data-appearance="dark"] .count-pill,
+.teacher-dashboard[data-appearance="dark"] .status,
+.teacher-dashboard[data-appearance="dark"] .knowledge-badge,
+.teacher-dashboard[data-appearance="dark"] .conversation-status-pill,
+.teacher-dashboard[data-appearance="dark"] .review-status-pill,
+.teacher-dashboard[data-appearance="dark"] .source-confidence-pill,
+.teacher-dashboard[data-appearance="dark"] .roster-status-pill,
+.student-workspace-shell[data-appearance="dark"] .student-workspace-main .message-sources span {
+  border-color: var(--card-border);
+  background: var(--chip-bg);
+  color: var(--text-secondary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .insights-panel,
+.teacher-dashboard[data-appearance="dark"] .recommendation-row,
+.teacher-dashboard[data-appearance="dark"] .next-action-tile,
+.teacher-dashboard[data-appearance="dark"] .material-list,
+.teacher-dashboard[data-appearance="dark"] .student-list,
+.teacher-dashboard[data-appearance="dark"] .student-preview-box,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-counts span,
+.teacher-dashboard[data-appearance="dark"] .material-detail-stat-grid div,
+.teacher-dashboard[data-appearance="dark"] .material-sample-row,
+.teacher-dashboard[data-appearance="dark"] .conversation-summary-card,
+.teacher-dashboard[data-appearance="dark"] .review-message-bubble {
+  border-color: var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  box-shadow: var(--app-shadow);
+}
+
+.teacher-dashboard[data-appearance="dark"] .empty-state,
+.teacher-dashboard[data-appearance="dark"] .insight-empty-card,
+.teacher-dashboard[data-appearance="dark"] .overview-empty-state,
+.teacher-dashboard[data-appearance="dark"] .roster-empty-state,
+.teacher-dashboard[data-appearance="dark"] .material-detail-empty,
+.teacher-dashboard[data-appearance="dark"] .knowledge-card-empty,
+.teacher-dashboard[data-appearance="dark"] .conversation-empty-state,
+.teacher-dashboard[data-appearance="dark"] .transcript-empty-state {
+  border-color: rgba(143, 153, 194, 0.32);
+  background: rgba(10, 14, 29, 0.76);
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .empty-state span,
+.teacher-dashboard[data-appearance="dark"] .insight-empty-row,
+.teacher-dashboard[data-appearance="dark"] .insight-empty-card,
+.teacher-dashboard[data-appearance="dark"] .insight-empty-inline,
+.teacher-dashboard[data-appearance="dark"] .field-hint,
+.teacher-dashboard[data-appearance="dark"] .student-note-count,
+.teacher-dashboard[data-appearance="dark"] .material-detail-muted,
+.teacher-dashboard[data-appearance="dark"] .knowledge-priority-control p,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-status,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-empty,
+.teacher-dashboard[data-appearance="dark"] .review-note-actions span {
+  color: var(--text-muted);
+}
+
+.teacher-dashboard[data-appearance="dark"] .insights-panel h3,
+.teacher-dashboard[data-appearance="dark"] .daily-summary-panel > p,
+.teacher-dashboard[data-appearance="dark"] .feedback-panel > p,
+.teacher-dashboard[data-appearance="dark"] .summary-panel p,
+.teacher-dashboard[data-appearance="dark"] .next-action-tile strong,
+.teacher-dashboard[data-appearance="dark"] .recommendation-copy strong,
+.teacher-dashboard[data-appearance="dark"] .trend-name-cell strong,
+.teacher-dashboard[data-appearance="dark"] .timeline-row strong,
+.teacher-dashboard[data-appearance="dark"] .evidence-row strong,
+.teacher-dashboard[data-appearance="dark"] .student-detail-card h4,
+.teacher-dashboard[data-appearance="dark"] .student-activity-card dd,
+.teacher-dashboard[data-appearance="dark"] .student-topic-list,
+.teacher-dashboard[data-appearance="dark"] .student-recent-row,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-summary,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-list strong,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-list ul,
+.teacher-dashboard[data-appearance="dark"] .student-preview-box strong,
+.teacher-dashboard[data-appearance="dark"] .material-detail-heading h3,
+.teacher-dashboard[data-appearance="dark"] .material-detail-section h4,
+.teacher-dashboard[data-appearance="dark"] .material-detail-section-heading h4,
+.teacher-dashboard[data-appearance="dark"] .material-sample-row strong,
+.teacher-dashboard[data-appearance="dark"] .conversation-summary-stack p,
+.teacher-dashboard[data-appearance="dark"] .source-audit-row,
+.teacher-dashboard[data-appearance="dark"] .student-timeline-grid dt,
+.teacher-dashboard[data-appearance="dark"] .student-timeline-grid dd {
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .trend-name-cell small,
+.teacher-dashboard[data-appearance="dark"] .timeline-row span,
+.teacher-dashboard[data-appearance="dark"] .evidence-row span,
+.teacher-dashboard[data-appearance="dark"] .recommendation-copy small,
+.teacher-dashboard[data-appearance="dark"] .recommendation-evidence-link,
+.teacher-dashboard[data-appearance="dark"] .next-action-tile small,
+.teacher-dashboard[data-appearance="dark"] .overview-row-copy,
+.teacher-dashboard[data-appearance="dark"] .recent-activity-row span,
+.teacher-dashboard[data-appearance="dark"] .recent-activity-row time,
+.teacher-dashboard[data-appearance="dark"] .review-queue-row > span,
+.teacher-dashboard[data-appearance="dark"] .profile-queue-row > span,
+.teacher-dashboard[data-appearance="dark"] .student-activity-card dt,
+.teacher-dashboard[data-appearance="dark"] .student-recent-row time,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-counts span,
+.teacher-dashboard[data-appearance="dark"] .material-detail-heading span:not(.material-icon),
+.teacher-dashboard[data-appearance="dark"] .material-detail-stat-grid dt,
+.teacher-dashboard[data-appearance="dark"] .material-sample-row span,
+.teacher-dashboard[data-appearance="dark"] .material-sample-row p,
+.teacher-dashboard[data-appearance="dark"] .retrieval-result-row div > span,
+.teacher-dashboard[data-appearance="dark"] .source-audit-row em,
+.teacher-dashboard[data-appearance="dark"] .conversation-summary-card span,
+.teacher-dashboard[data-appearance="dark"] .conversation-summary-stack span,
+.teacher-dashboard[data-appearance="dark"] .timeline-chart small {
+  color: var(--text-muted);
+}
+
+.teacher-dashboard[data-appearance="dark"] .insights-time-filters,
+.teacher-dashboard[data-appearance="dark"] .insights-date-button,
+.teacher-dashboard[data-appearance="dark"] .insights-time-filters button,
+.teacher-dashboard[data-appearance="dark"] .insight-feedback-actions button,
+.teacher-dashboard[data-appearance="dark"] .recommendation-icon-actions button,
+.teacher-dashboard[data-appearance="dark"] .roster-filter-list button,
+.teacher-dashboard[data-appearance="dark"] .overview-small-action,
+.teacher-dashboard[data-appearance="dark"] .student-icon-button,
+.teacher-dashboard[data-appearance="dark"] .student-quick-actions button,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-view-tabs button,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-actions button,
+.teacher-dashboard[data-appearance="dark"] .learning-profile-card .student-detail-card-heading button,
+.teacher-dashboard[data-appearance="dark"] .review-action-grid button,
+.teacher-dashboard[data-appearance="dark"] .source-audit-heading button,
+.teacher-dashboard[data-appearance="dark"] .source-audit-expand,
+.teacher-dashboard[data-appearance="dark"] .conversation-evidence-filter button,
+.teacher-dashboard[data-appearance="dark"] .knowledge-pagination button,
+.teacher-dashboard[data-appearance="dark"] .roster-pagination button,
+.teacher-dashboard[data-appearance="dark"] .knowledge-icon-button {
+  border-color: var(--card-border);
+  background: var(--chip-bg);
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .insights-time-filters button:not([aria-pressed="true"]):hover,
+.teacher-dashboard[data-appearance="dark"] .insight-feedback-actions button:hover,
+.teacher-dashboard[data-appearance="dark"] .recommendation-icon-actions button:hover,
+.teacher-dashboard[data-appearance="dark"] .roster-filter-list button:hover,
+.teacher-dashboard[data-appearance="dark"] .overview-small-action:hover,
+.teacher-dashboard[data-appearance="dark"] .student-icon-button:hover,
+.teacher-dashboard[data-appearance="dark"] .student-quick-actions button:hover,
+.teacher-dashboard[data-appearance="dark"] .review-action-grid button:hover,
+.teacher-dashboard[data-appearance="dark"] .source-audit-heading button:hover,
+.teacher-dashboard[data-appearance="dark"] .source-audit-expand:hover,
+.teacher-dashboard[data-appearance="dark"] .knowledge-pagination button:hover,
+.teacher-dashboard[data-appearance="dark"] .roster-pagination button:hover,
+.teacher-dashboard[data-appearance="dark"] .knowledge-icon-button:hover {
+  background: var(--row-hover-bg);
+  color: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .roster-filter-list button[aria-pressed="true"],
+.teacher-dashboard[data-appearance="dark"] .learning-profile-view-tabs button[aria-pressed="true"],
+.teacher-dashboard[data-appearance="dark"] .review-action-grid button[aria-pressed="true"],
+.teacher-dashboard[data-appearance="dark"] .roster-pagination button[aria-current="page"],
+.teacher-dashboard[data-appearance="dark"] .knowledge-pagination button[aria-current="page"] {
+  border-color: var(--theme-primary);
+  background: var(--theme-primary-soft);
+  color: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .insights-time-filters button[aria-pressed="true"] {
+  border-color: var(--theme-primary);
+  background: var(--theme-primary-gradient);
+  color: var(--on-primary);
+  box-shadow: 0 12px 24px var(--theme-primary-shadow);
+}
+
+.teacher-dashboard[data-appearance="dark"] .roster-bulk-bar,
+.teacher-dashboard[data-appearance="dark"] .roster-table-header,
+.teacher-dashboard[data-appearance="dark"] .student-list-header,
+.teacher-dashboard[data-appearance="dark"] .knowledge-source-header {
+  border-color: var(--card-border);
+  background: rgba(10, 14, 29, 0.86);
+  color: var(--text-secondary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .roster-check-label,
+.teacher-dashboard[data-appearance="dark"] .roster-bulk-bar button {
+  border-color: var(--card-border);
+  color: var(--text-secondary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .overview-status-pill,
+.teacher-dashboard[data-appearance="dark"] .insight-status-pill,
+.teacher-dashboard[data-appearance="dark"] .priority-pill,
+.teacher-dashboard[data-appearance="dark"] .initials-pill,
+.teacher-dashboard[data-appearance="dark"] .retrieval-page-pill,
+.teacher-dashboard[data-appearance="dark"] .source-audit-row > span:first-child,
+.teacher-dashboard[data-appearance="dark"] .transcript-chip-row span,
+.teacher-dashboard[data-appearance="dark"] .source-audit-heading span,
+.teacher-dashboard[data-appearance="dark"] .review-source-pills span,
+.teacher-dashboard[data-appearance="dark"] .material-topic-list span {
+  border-color: var(--card-border);
+  background: var(--chip-bg);
+  color: var(--text-secondary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .overview-status-pill.high,
+.teacher-dashboard[data-appearance="dark"] .insight-status-pill.active,
+.teacher-dashboard[data-appearance="dark"] .priority-pill.high,
+.teacher-dashboard[data-appearance="dark"] .source-warning-row {
+  border-color: rgba(255, 137, 146, 0.36);
+  background: rgba(214, 93, 103, 0.16);
+  color: #ffb0b6;
+}
+
+.teacher-dashboard[data-appearance="dark"] .overview-status-pill.active,
+.teacher-dashboard[data-appearance="dark"] .overview-status-pill.new,
+.teacher-dashboard[data-appearance="dark"] .insight-status-pill.resolved,
+.teacher-dashboard[data-appearance="dark"] .priority-pill.low,
+.teacher-dashboard[data-appearance="dark"] .source-confidence-pill:not(.low),
+.teacher-dashboard[data-appearance="dark"] .roster-status-pill.active,
+.teacher-dashboard[data-appearance="dark"] .knowledge-badge.active,
+.teacher-dashboard[data-appearance="dark"] .knowledge-badge.ready {
+  border-color: rgba(72, 209, 123, 0.34);
+  background: rgba(35, 155, 85, 0.16);
+  color: #8ee9ad;
+}
+
+.teacher-dashboard[data-appearance="dark"] .overview-status-pill.note,
+.teacher-dashboard[data-appearance="dark"] .overview-status-pill.ai-review,
+.teacher-dashboard[data-appearance="dark"] .insight-status-pill.emerging,
+.teacher-dashboard[data-appearance="dark"] .knowledge-badge.teacher-only {
+  border-color: rgba(85, 181, 242, 0.34);
+  background: rgba(22, 129, 196, 0.16);
+  color: #9bd4fa;
+}
+
+.teacher-dashboard[data-appearance="dark"] .knowledge-badge.processing,
+.teacher-dashboard[data-appearance="dark"] .knowledge-badge.review,
+.teacher-dashboard[data-appearance="dark"] .priority-pill.medium,
+.teacher-dashboard[data-appearance="dark"] .overview-status-pill.follow-up,
+.teacher-dashboard[data-appearance="dark"] .overview-status-pill.draft,
+.teacher-dashboard[data-appearance="dark"] .insight-status-pill.improving,
+.teacher-dashboard[data-appearance="dark"] .roster-status-pill.inactive,
+.teacher-dashboard[data-appearance="dark"] .source-confidence-pill.low {
+  border-color: var(--theme-primary-ring);
+  background: var(--theme-primary-soft);
+  color: var(--theme-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .conversation-control-row select,
+.teacher-dashboard[data-appearance="dark"] .conversation-search,
+.teacher-dashboard[data-appearance="dark"] .roster-search,
+.teacher-dashboard[data-appearance="dark"] .retrieval-search-row input,
+.teacher-dashboard[data-appearance="dark"] .knowledge-priority-control select {
+  border-color: var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .conversation-search,
+.teacher-dashboard[data-appearance="dark"] .roster-search,
+.teacher-dashboard[data-appearance="dark"] .retrieval-search-row > span {
+  color: var(--text-muted);
+}
+
+.teacher-dashboard[data-appearance="dark"] .conversation-inbox-table,
+.teacher-dashboard[data-appearance="dark"] .conversation-inbox-row,
+.teacher-dashboard[data-appearance="dark"] .conversation-panel-footer,
+.teacher-dashboard[data-appearance="dark"] .transcript-message-list,
+.teacher-dashboard[data-appearance="dark"] .review-readonly-footer,
+.teacher-dashboard[data-appearance="dark"] .conversation-summary-stack article,
+.teacher-dashboard[data-appearance="dark"] .retrieval-results,
+.teacher-dashboard[data-appearance="dark"] .retrieval-result-row,
+.teacher-dashboard[data-appearance="dark"] .material-detail-section,
+.teacher-dashboard[data-appearance="dark"] .timeline-chart,
+.teacher-dashboard[data-appearance="dark"] .roster-table-row,
+.teacher-dashboard[data-appearance="dark"] .student-row,
+.teacher-dashboard[data-appearance="dark"] .material-row,
+.teacher-dashboard[data-appearance="dark"] .knowledge-library-footer,
+.teacher-dashboard[data-appearance="dark"] .knowledge-toggle-list {
+  border-color: var(--card-border);
+}
+
+.teacher-dashboard[data-appearance="dark"] .material-detail-drawer {
+  border-color: var(--card-border);
+  background: var(--panel);
+  color: var(--text-primary);
+}
+
+.teacher-dashboard[data-appearance="dark"] .detail-drawer-backdrop {
+  background: rgba(0, 0, 0, 0.56);
+}
+
+.teacher-dashboard[data-appearance="dark"] .overview-metric-card:nth-child(4) .overview-metric-icon,
+.teacher-dashboard[data-appearance="dark"] .overview-metric-card:nth-child(6) .overview-metric-icon,
+.teacher-dashboard[data-appearance="dark"] .teacher-action-button svg,
+.teacher-dashboard[data-appearance="dark"] .row-chevron,
+.teacher-dashboard[data-appearance="dark"] .next-action-tile > svg,
+.teacher-dashboard[data-appearance="dark"] .recommendation-icon-actions button:last-child {
+  color: var(--text-muted);
 }

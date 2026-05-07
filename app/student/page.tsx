@@ -9,7 +9,14 @@ import remarkMath from "remark-math";
 import { useAuth } from "@/components/AuthProvider";
 import { RequireAuth } from "@/components/RequireAuth";
 import { apiUrl } from "@/lib/api-client";
-import { signOutCurrentUser } from "@/lib/auth";
+import { signOutCurrentUser, updateUserThemePreference } from "@/lib/auth";
+import {
+  defaultTeacherClassAppearance,
+  defaultTeacherClassThemeColor,
+  normalizeTeacherClassAppearance,
+  normalizeTeacherClassThemeColor,
+  teacherClassThemeColorOptions
+} from "@/lib/class-theme";
 import { subscribeToClass, type TeacherClass } from "@/lib/classes";
 import type { ChatMessage, StudentConversationSummary, TutorApiResponse } from "@/lib/types";
 
@@ -39,6 +46,7 @@ type ChatStreamEvent =
   | { payload: TutorApiResponse; type: "final" };
 
 const studentComposerTextareaMaxHeight = 156;
+const studentAppearanceOptions = ["light", "dark"] as const;
 
 const initialMessages: ChatMessage[] = [
   {
@@ -80,6 +88,8 @@ function StudentWorkspace() {
   const [savedClass, setSavedClass] = useState<TeacherClass | null>(null);
   const [conversationLoadError, setConversationLoadError] = useState("");
   const [conversationMessagesError, setConversationMessagesError] = useState("");
+  const [themePreferenceError, setThemePreferenceError] = useState("");
+  const [isSavingThemePreference, setIsSavingThemePreference] = useState(false);
   const [conversationSummaries, setConversationSummaries] = useState<StudentConversationSummary[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [selectedConversationClassId, setSelectedConversationClassId] = useState("");
@@ -148,6 +158,12 @@ function StudentWorkspace() {
   }, [activeCourseId, firebaseReady, isTeacherPreview, profile?.role, user]);
 
   const activeClass = savedClass?.id === activeCourseId ? savedClass : null;
+  const activeAppearance = normalizeTeacherClassAppearance(
+    profile?.appearance ?? activeClass?.appearance ?? defaultTeacherClassAppearance
+  );
+  const activeThemeColor = normalizeTeacherClassThemeColor(
+    profile?.themeColor ?? activeClass?.themeColor ?? defaultTeacherClassThemeColor
+  );
   const className = activeClass?.name ?? (activeCourseId ? "Saved class" : "Class needed");
   const classSection = activeClass?.section ?? (activeCourseId ? "Student chat" : "Enter your class code");
   const classSectionLabel = formatClassSectionLabel(classSection, Boolean(activeCourseId));
@@ -327,6 +343,30 @@ function StudentWorkspace() {
     }
   }
 
+  async function updatePersonalThemePreference(nextPreference: {
+    appearance?: unknown;
+    themeColor?: unknown;
+  }) {
+    if (!user) {
+      return;
+    }
+
+    setThemePreferenceError("");
+    setIsSavingThemePreference(true);
+
+    try {
+      await updateUserThemePreference({
+        appearance: normalizeTeacherClassAppearance(nextPreference.appearance ?? activeAppearance),
+        themeColor: normalizeTeacherClassThemeColor(nextPreference.themeColor ?? activeThemeColor),
+        uid: user.uid
+      });
+    } catch (caughtError) {
+      setThemePreferenceError(caughtError instanceof Error ? caughtError.message : "Theme preference failed.");
+    } finally {
+      setIsSavingThemePreference(false);
+    }
+  }
+
   function startNewConversation() {
     setSelectedConversationId("");
     setSelectedConversationClassId(activeCourseId);
@@ -341,7 +381,11 @@ function StudentWorkspace() {
 
   return (
     <RequireAuth role={isTeacherPreview ? ["student", "teacher"] : "student"}>
-      <section className="student-workspace-shell">
+      <section
+        className="student-workspace-shell"
+        data-appearance={activeAppearance}
+        data-theme-color={activeThemeColor}
+      >
         <aside className="student-workspace-sidebar" aria-label="Student workspace navigation">
           <div className="student-sidebar-scroll">
             <Link className="student-brand" href="/">
@@ -367,6 +411,50 @@ function StudentWorkspace() {
                   <strong>{visibleClassCode || "No class joined"}</strong>
                 </div>
               ) : null}
+
+              <div className="student-theme-preferences" aria-label="Theme preferences">
+                <span className="field-label">Personal theme color</span>
+                <div className="settings-theme-swatches" role="radiogroup" aria-label="Personal theme color">
+                  {teacherClassThemeColorOptions.map((option) => (
+                    <label className="settings-theme-swatch" key={option.id}>
+                      <input
+                        checked={activeThemeColor === option.id}
+                        disabled={isSavingThemePreference}
+                        name="studentThemeColor"
+                        type="radio"
+                        value={option.id}
+                        onChange={() => updatePersonalThemePreference({ themeColor: option.id })}
+                      />
+                      <span>
+                        <span
+                          className="settings-theme-swatch-dot"
+                          style={{ backgroundColor: option.color }}
+                          aria-hidden="true"
+                        />
+                        {option.label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <span className="field-label">Personal appearance</span>
+                <div className="settings-appearance-pills" role="radiogroup" aria-label="Personal appearance">
+                  {studentAppearanceOptions.map((appearance) => (
+                    <label className="settings-choice-pill" key={appearance}>
+                      <input
+                        checked={activeAppearance === appearance}
+                        disabled={isSavingThemePreference}
+                        name="studentAppearance"
+                        type="radio"
+                        value={appearance}
+                        onChange={() => updatePersonalThemePreference({ appearance })}
+                      />
+                      <span>{capitalizeLabel(appearance)}</span>
+                    </label>
+                  ))}
+                </div>
+                {themePreferenceError ? <p className="form-error">{themePreferenceError}</p> : null}
+              </div>
             </section>
 
             {profile?.role === "student" && !isTeacherPreview ? (
@@ -852,6 +940,10 @@ function formatConversationMeta(conversation: StudentConversationSummary) {
     `${conversation.messageCount} messages`,
     formatConversationDate(conversation.lastMessageAt)
   ].filter(Boolean).join(" / ");
+}
+
+function capitalizeLabel(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function formatMessageCount(count: number) {

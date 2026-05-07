@@ -16,6 +16,12 @@ import {
 import { apiUrl } from "./api-client";
 import { generateClassCode } from "./class-code";
 import {
+  normalizeTeacherClassAppearance,
+  normalizeTeacherClassThemeColor,
+  type TeacherClassAppearance,
+  type TeacherClassThemeColor
+} from "./class-theme";
+import {
   type AnswerPolicySettings,
   type ClassModelSettings,
   type ResponseFormatSettings,
@@ -34,6 +40,8 @@ export type TeacherClass = {
   section: string;
   teacherId: string;
   teacherName: string;
+  appearance?: TeacherClassAppearance;
+  themeColor?: TeacherClassThemeColor;
   joinCode?: string;
   answerPolicy?: AnswerPolicySettings;
   behaviorTitle?: TutorBehavior;
@@ -255,6 +263,7 @@ export async function ensureClassJoinCode(classId: string) {
 
 export async function updateTeacherClassSettings({
   answerPolicy,
+  appearance,
   behaviorInstructions,
   behaviorTitle,
   classId,
@@ -264,9 +273,11 @@ export async function updateTeacherClassSettings({
   refusalStyle,
   responseFormat,
   section,
-  sourceUsage
+  sourceUsage,
+  themeColor
 }: {
   answerPolicy: AnswerPolicySettings;
+  appearance: TeacherClassAppearance;
   behaviorInstructions: string;
   behaviorTitle: TutorBehavior;
   classId: string;
@@ -277,11 +288,13 @@ export async function updateTeacherClassSettings({
   responseFormat: ResponseFormatSettings;
   section: string;
   sourceUsage: SourceUsageSettings;
+  themeColor: TeacherClassThemeColor;
 }) {
   assertFirestoreReady();
 
   await updateDoc(doc(db!, "classes", classId), {
     answerPolicy,
+    appearance: normalizeTeacherClassAppearance(appearance),
     behaviorInstructions: behaviorInstructions.trim(),
     behaviorTitle: behaviorTitle.trim(),
     defaultAssignmentContext: defaultAssignmentContext.trim(),
@@ -290,7 +303,8 @@ export async function updateTeacherClassSettings({
     refusalStyle: refusalStyle.trim(),
     responseFormat,
     section: section.trim(),
-    sourceUsage
+    sourceUsage,
+    themeColor: normalizeTeacherClassThemeColor(themeColor)
   });
 }
 

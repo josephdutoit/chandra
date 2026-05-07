@@ -59,3 +59,13 @@ test("Firestore class settings rules accept the current teacher settings schema"
   assert.match(rules, /sourceUsage\.quoteSourcePassages is bool/);
   assert.match(rules, /modelSettings\.responseLength in \["short", "medium", "long", "extended"\]/);
 });
+
+test("Firestore user theme preference updates only validate theme fields", () => {
+  const rules = readFileSync(join(repoRoot, "firestore.rules"), "utf8");
+
+  assert.match(rules, /function validProfileThemePreferenceUpdate\(\)/);
+  assert.match(rules, /affectedKeys\(\)\.hasOnly\(\[\s*"appearance",\s*"themeColor"\s*\]\)/);
+  assert.match(rules, /validOptionalProfileAppearance\(request\.resource\.data\)/);
+  assert.match(rules, /validOptionalProfileThemeColor\(request\.resource\.data\)/);
+  assert.match(rules, /validProfileUpdate\(userId\)\s*\|\|\s*validProfileThemePreferenceUpdate\(\)/);
+});

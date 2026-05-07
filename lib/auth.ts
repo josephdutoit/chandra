@@ -14,8 +14,15 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
+  updateDoc
 } from "firebase/firestore";
 import { normalizeClassCode } from "./class-code";
+import {
+  normalizeTeacherClassAppearance,
+  normalizeTeacherClassThemeColor,
+  type TeacherClassAppearance,
+  type TeacherClassThemeColor
+} from "./class-theme";
 import { auth, db, isFirebaseConfigured } from "./firebase";
 
 export type AccountRole = "student" | "teacher";
@@ -25,7 +32,9 @@ export type UserProfile = {
   email: string;
   displayName: string;
   role: AccountRole;
+  appearance?: TeacherClassAppearance;
   classId?: string;
+  themeColor?: TeacherClassThemeColor;
   createdAt?: unknown;
 };
 
@@ -217,6 +226,27 @@ export async function updateStudentClass({
     email: auth!.currentUser.email ?? "",
     syncProfile: true,
     user: auth!.currentUser
+  });
+}
+
+export async function updateUserThemePreference({
+  appearance,
+  themeColor,
+  uid
+}: {
+  appearance: TeacherClassAppearance;
+  themeColor: TeacherClassThemeColor;
+  uid: string;
+}) {
+  assertFirebaseReady();
+
+  if (auth!.currentUser?.uid !== uid) {
+    throw new Error("Sign in before changing your theme.");
+  }
+
+  await updateDoc(doc(db!, "users", uid), {
+    appearance: normalizeTeacherClassAppearance(appearance),
+    themeColor: normalizeTeacherClassThemeColor(themeColor)
   });
 }
 

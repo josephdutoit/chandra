@@ -56,13 +56,24 @@ service cloud.firestore {
     }
 
     function validProfileBase(userId, data) {
-      return data.keys().hasOnly(["uid", "email", "displayName", "role", "classId", "createdAt"])
+      return data.keys().hasOnly([
+          "uid",
+          "email",
+          "displayName",
+          "role",
+          "classId",
+          "appearance",
+          "themeColor",
+          "createdAt"
+        ])
         && data.uid == userId
         && data.email is string
         && data.displayName is string
         && data.displayName.size() > 0
         && validRole(data.role)
-        && validProfileClass(data);
+        && validProfileClass(data)
+        && validOptionalProfileAppearance(data)
+        && validOptionalProfileThemeColor(data);
     }
 
     function validProfileCreate(userId) {
@@ -72,7 +83,12 @@ service cloud.firestore {
 
     function validProfileUpdate(userId) {
       return validProfileBase(userId, request.resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["displayName", "classId"])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "displayName",
+          "classId",
+          "appearance",
+          "themeColor"
+        ])
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
         && request.resource.data.role == resource.data.role
@@ -85,6 +101,25 @@ service cloud.firestore {
         );
     }
 
+    function validProfileThemePreferenceUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "appearance",
+          "themeColor"
+        ])
+        && validOptionalProfileAppearance(request.resource.data)
+        && validOptionalProfileThemeColor(request.resource.data);
+    }
+
+    function validOptionalProfileAppearance(data) {
+      return !data.keys().hasAny(["appearance"])
+        || validAppearance(data.appearance);
+    }
+
+    function validOptionalProfileThemeColor(data) {
+      return !data.keys().hasAny(["themeColor"])
+        || validThemeColor(data.themeColor);
+    }
+
     function validClassCreate() {
       return request.resource.data.keys().hasOnly([
           "name",
@@ -92,6 +127,7 @@ service cloud.firestore {
           "teacherId",
           "teacherName",
           "joinCode",
+          "appearance",
           "behaviorTitle",
           "answerPolicy",
           "behaviorInstructions",
@@ -100,6 +136,7 @@ service cloud.firestore {
           "refusalStyle",
           "responseFormat",
           "sourceUsage",
+          "themeColor",
           "createdAt"
         ])
         && request.resource.data.name is string
@@ -110,6 +147,7 @@ service cloud.firestore {
         && request.resource.data.teacherName is string
         && request.resource.data.teacherName.size() > 0
         && validJoinCode(request.resource.data)
+        && validAppearance(request.resource.data.appearance)
         && validAnswerPolicy(request.resource.data.answerPolicy)
         && request.resource.data.behaviorTitle is string
         && request.resource.data.behaviorInstructions is string
@@ -118,6 +156,7 @@ service cloud.firestore {
         && request.resource.data.refusalStyle is string
         && validResponseFormat(request.resource.data.responseFormat)
         && validSourceUsage(request.resource.data.sourceUsage)
+        && validThemeColor(request.resource.data.themeColor)
         && request.resource.data.createdAt == request.time;
     }
 
@@ -126,6 +165,7 @@ service cloud.firestore {
             "name",
             "section",
             "joinCode",
+            "appearance",
             "answerPolicy",
             "behaviorTitle",
             "behaviorInstructions",
@@ -133,7 +173,8 @@ service cloud.firestore {
             "modelSettings",
             "refusalStyle",
             "responseFormat",
-            "sourceUsage"
+            "sourceUsage",
+            "themeColor"
           ])
         && request.resource.data.teacherId == resource.data.teacherId
         && stableClassTeacherName()
@@ -149,6 +190,7 @@ service cloud.firestore {
       return data.keys().hasAll([
           "name",
           "section",
+          "appearance",
           "answerPolicy",
           "behaviorTitle",
           "behaviorInstructions",
@@ -156,12 +198,14 @@ service cloud.firestore {
           "modelSettings",
           "refusalStyle",
           "responseFormat",
-          "sourceUsage"
+          "sourceUsage",
+          "themeColor"
         ])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.section is string
         && request.resource.data.section.size() > 0
+        && validAppearance(request.resource.data.appearance)
         && validAnswerPolicy(request.resource.data.answerPolicy)
         && request.resource.data.behaviorTitle is string
         && request.resource.data.defaultAssignmentContext is string
@@ -169,7 +213,18 @@ service cloud.firestore {
         && request.resource.data.behaviorInstructions is string
         && request.resource.data.refusalStyle is string
         && validResponseFormat(request.resource.data.responseFormat)
-        && validSourceUsage(request.resource.data.sourceUsage);
+        && validSourceUsage(request.resource.data.sourceUsage)
+        && validThemeColor(request.resource.data.themeColor);
+    }
+
+    function validThemeColor(themeColor) {
+      return themeColor is string
+        && themeColor in ["purple", "indigo", "blue", "teal", "emerald", "amber", "rose"];
+    }
+
+    function validAppearance(appearance) {
+      return appearance is string
+        && appearance in ["light", "dark"];
     }
 
     function validAnswerPolicy(answerPolicy) {
@@ -302,7 +357,10 @@ service cloud.firestore {
       allow read: if isSignedIn() && request.auth.uid == userId;
       allow update: if isSignedIn()
         && request.auth.uid == userId
-        && validProfileUpdate(userId);
+        && (
+          validProfileUpdate(userId)
+          || validProfileThemePreferenceUpdate()
+        );
     }
 
     match /userPresence/{userId} {
