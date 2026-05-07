@@ -30,7 +30,7 @@ export const tutorPolicies: TutorPolicy[] = [
       "When the student is stuck, point them to the most relevant worked example before giving a hint.",
       "Use LaTeX for equations and keep explanations short enough for a chat interface."
     ],
-    refusalStyle: "Redirect requests for direct answers into hints, checks, or next-step questions.",
+    refusalStyle: "Redirect requests for direct answers into an attempt check, work review, or similar example.",
     retrievalGuidance: "Prefer course examples over generic explanations when a matching source is available."
   }
 ];

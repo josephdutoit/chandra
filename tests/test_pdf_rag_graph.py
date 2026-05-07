@@ -494,7 +494,7 @@ async def test_pasted_concrete_math_problem_forces_exact_problem_search(tmp_path
     assert retriever.calls == [
         {
             "query": (
-                "find exact problem in problem PDF worksheet assignment practice problems textbook section "
+                "find exact task in assignment problem PDF worksheet lab prompt practice problems textbook section "
                 "lim(x -> 8) [2f(x) - 12h(x)], given lim f(x) = -9 and lim h(x) = 4. I need help"
             ),
             "top_k": 5,
@@ -565,12 +565,12 @@ async def test_streaming_pasted_concrete_math_problem_forces_exact_problem_searc
     ]
 
     assert [event["type"] for event in events] == ["search_batch", "step", "step", "final"]
-    assert events[0]["searches"][0]["description"] == "Checking exact problem and page"
+    assert events[0]["searches"][0]["description"] == "Checking exact task and page"
     assert events[-1]["payload"]["content"].startswith("This is listed")
     assert events[-1]["payload"]["structuredOutput"]["metadata"]["sourceConfidence"] == "high"
     assert len(client.calls) == 2
     assert len(retriever.calls) == 1
-    assert retriever.calls[0]["query"].startswith("find exact problem in problem PDF")
+    assert retriever.calls[0]["query"].startswith("find exact task in assignment problem PDF")
 
 
 @pytest.mark.asyncio
@@ -750,6 +750,71 @@ async def test_retrieval_path_executes_search_pdf_pages(tmp_path: Path) -> None:
         "openrouter_answer_with_pages",
     ]
     assert response["langGraphTrace"]["searchQueries"] == ["worksheet 4 problem 7"]
+
+
+@pytest.mark.asyncio
+async def test_retrieved_pages_with_diagnostics_do_not_report_high_confidence(tmp_path: Path) -> None:
+    image = tmp_path / "wrong_section.png"
+    image.write_bytes(b"selected-page")
+    client = FakeOpenRouterClient(
+        [
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "search_pdf_pages",
+                            "arguments": json.dumps({"query": "textbook reading section 7.3 trig substitution", "top_k": 5}),
+                        },
+                    }
+                ],
+            },
+            {"content": "I found a related page, but it is not the requested section.", "tool_calls": []},
+        ]
+    )
+    retriever = FakeRetriever(
+        [
+            {
+                "doc_id": "doc_1",
+                "title": "Uploaded Calculus Textbook",
+                "page_start": 40,
+                "page_end": 40,
+                "section": "Section 6.2",
+                "score": 0.7,
+                "chunk_text": "Section 6.2 covers integration by parts.",
+                "source_pdf_path": "data/pdfs/doc_1.pdf",
+            }
+        ]
+    )
+
+    async def page_asset_builder(pages: list[dict[str, Any]], *, max_total_pages: int) -> list[dict[str, Any]]:
+        return [
+            {
+                "doc_id": page["doc_id"],
+                "title": page["title"],
+                "page_start": page["page_start"],
+                "page_end": page["page_end"],
+                "images": [str(image)],
+                "citation_label": f"{page['title']}, page {page['page_start']}",
+            }
+            for page in pages
+        ]
+
+    response = await run_pdf_rag_agent(
+        class_id="class-calculus",
+        messages=[{"role": "user", "content": "Help me with textbook Section 7.3 trig substitution."}],
+        model="openai/gpt-4.1-mini",
+        openrouter_client=client,
+        page_asset_builder=page_asset_builder,
+        professor_id="teacher-1",
+        retriever=retriever,
+    )
+
+    assert response["retrievalConfidence"] == "medium"
+    assert response["structuredOutput"]["metadata"]["sourceConfidence"] == "medium"
+    assert response["langGraphTrace"]["retrievalDiagnostics"][0]["issue"] == "wrong section/title"
 
 
 @pytest.mark.asyncio
@@ -1614,18 +1679,23 @@ def test_final_answer_instruction_is_strict(tmp_path: Path) -> None:
     assert "Use retrieval_diagnostics to repair weak searches" in instruction
     assert "found problem page only, missing method" in instruction
     assert "sqrt/square root" in instruction
-    assert "If the student only asks where a problem is" in instruction
+    assert "If the student only asks where a task, question, exercise, or problem is" in instruction
     assert "locate it only; do not ask a follow-up" in instruction
     assert "If the student asks for the answer, final answer" in instruction
-    assert "do not continue solving their exact problem" in instruction
-    assert "a page that only locates the exercise or lists practice problems is not enough" in instruction
+    assert "do not continue completing their exact task" in instruction
+    assert "Source-backed help does not override the attempt-first rule" in instruction
+    assert "first ask what they have tried or where they are stuck" in instruction
+    assert "do not provide task-specific starting points" in instruction
+    assert "explain like I am 5' is not a student attempt" in instruction
+    assert "do not reveal a full solution, final answer, final artifact" in instruction
+    assert "a page that only locates the task or lists practice items is not enough" in instruction
     assert "For conceptual method questions" in instruction
     assert "quote the relevant passage exactly" in instruction
     assert "generic copyright grounds" in instruction
     assert "solving help or method teaching" in instruction
     assert "verify it before affirming it" in instruction
     assert "do not state the next move outright" in instruction
-    assert "`$integral$ is Problem N in Section X, on printed page P of Title.`" in instruction
+    assert "`That item is Problem/Question N in Section X, on printed page P of Title.`" in instruction
 
 
 def test_extract_printed_page_number_from_pdf_footer_text() -> None:

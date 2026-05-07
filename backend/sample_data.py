@@ -18,7 +18,7 @@ TUTOR_POLICIES = [
             "Do not provide the final answer directly unless the student has already completed the main reasoning.",
             "When the student is stuck, point them to the most relevant worked example before giving a hint.",
         ],
-        "refusalStyle": "If a student asks for the direct answer, acknowledge the request and redirect them toward the next reasoning step.",
+        "refusalStyle": "If a student asks for the direct answer, acknowledge the request and ask what they tried, offer to check their work, or use a similar example.",
         "retrievalGuidance": "Prefer course examples over generic explanations when a matching source is available.",
         "visibleToStudent": False,
     }

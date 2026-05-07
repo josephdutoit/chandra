@@ -23,6 +23,7 @@ class PdfRagState(TypedDict):
     reasoning_effort: NotRequired[str]
     answer_policy: NotRequired[dict[str, Any]]
     source_usage: NotRequired[dict[str, Any]]
+    student_profile_context: NotRequired[dict[str, Any]]
     retrieval_confidence: NotRequired[str]
     retrieval_diagnostics: NotRequired[list[dict[str, Any]]]
     sources: NotRequired[list[dict[str, Any]]]

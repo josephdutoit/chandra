@@ -229,7 +229,7 @@ const answerPolicySettings = [
   {
     id: "requireStudentAttemptFirst",
     title: "Require student attempt first",
-    description: "Encourage students to try before getting help."
+    description: "Ask for an attempt before task-specific help."
   },
   {
     id: "askGuidingQuestionBeforeExplaining",
@@ -275,7 +275,7 @@ const responseFormatSettings = [
   {
     id: "oneStepAtATime",
     title: "One step at a time",
-    description: "Give the next hint or step, then wait before continuing."
+    description: "After an attempt, give one hint or step before continuing."
   },
   {
     id: "endWithCheckQuestion",

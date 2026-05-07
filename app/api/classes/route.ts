@@ -57,8 +57,9 @@ export async function POST(request: Request) {
       answerPolicy: defaultAnswerPolicySettings,
       behaviorInstructions: [
         "Ask students to explain their thinking before giving hints.",
+        "If a student names a specific task without showing work, ask what they have tried before giving task-specific hints.",
         "Do not provide final answers unless the student has already shown the main reasoning.",
-        "Use course materials before generic explanations when relevant."
+        "Use course materials to orient hints and explanations without starting the student's exact task for them."
       ].join("\n"),
       behaviorTitle: "Guided problem solving",
       createdAt: FieldValue.serverTimestamp(),

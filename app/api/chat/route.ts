@@ -255,6 +255,7 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
       reasoningEffort,
       answerPolicy: teacherClass?.answerPolicy,
       sourceUsage: teacherClass?.sourceUsage,
+      studentLearningProfileContext: privateBackendLearningProfileContext(studentLearningProfileContext),
       messages: toProviderMessages(systemPrompt, messages)
     },
     learningProfileTelemetryContext: studentLearningProfileContext,
@@ -269,6 +270,20 @@ function emptyLearningStrategyProfileContext(): LearningStrategyProfileContext {
   return {
     digest: "",
     strategies: []
+  };
+}
+
+function privateBackendLearningProfileContext(profileContext: LearningStrategyProfileContext) {
+  return {
+    digest: profileContext.digest,
+    strategiesToTryNext: profileContext.strategies
+      .filter((strategy) => strategy.source === "strategiesToTryNext")
+      .map((strategy) => strategy.label),
+    availableStrategies: profileContext.strategies.map((strategy) => ({
+      id: strategy.id,
+      label: strategy.label,
+      source: strategy.source
+    }))
   };
 }
 
@@ -824,9 +839,9 @@ function buildPdfToolChoosingTutorSystemPrompt(
   const answerPolicy = normalizeAnswerPolicySettings(answerPolicyValue);
   const sourcePriorityRules = sourceUsage.useClassMaterialsFirst
     ? [
-        "- If the student asks to find, identify, or locate a specific problem, search the problem PDF first: homework/problem sets, worksheets, assignments, or practice-problem PDFs. Do not search textbook/readings unless no problem-set match is found.",
-        "- If the student asks about a concrete math problem, including a fully pasted problem, search for the exact problem/source first when class materials are available. Check problem PDFs, worksheets, assignments, practice problems, and textbook sections before helping.",
-        "- After checking the exact problem/source, search textbook/readings only if method support would help.",
+        "- If the student asks to find, identify, or locate a specific task, question, exercise, or problem, search the assignment/problem PDF first: homework/problem sets, worksheets, assignments, labs, prompts, or practice-problem PDFs. Do not search textbook/readings unless no task-source match is found.",
+        "- If the student asks about a concrete assignment or problem, including a fully pasted question or prompt, search for the exact task/source first when class materials are available. Check problem PDFs, worksheets, assignments, labs, prompts, practice problems, readings, and textbook sections before helping.",
+        "- After checking the exact task/source, search textbook/readings only if method, concept, or example support would help.",
         "- If the student asks about a textbook section or chapter, first search the generic textbook/reading section marker with the exact section/chapter number and topic words; do not assume a particular textbook title.",
         "- For conceptual method questions such as when to use a technique, how to recognize a pattern, why a rule works, or requests for examples, search textbook/readings/examples so the explanation can use the class wording."
       ]
@@ -843,7 +858,7 @@ function buildPdfToolChoosingTutorSystemPrompt(
       ? ["- Prefer worked-example and example PDFs when the student needs explanation or practice."]
       : []),
     ...(sourceUsage.preferredSourceType === "Homework and textbook"
-      ? ["- Prefer homework/problem-set pages for exact problem lookup and textbook/readings for method support."]
+      ? ["- Prefer homework/problem-set pages for exact task lookup and textbook/readings for method or concept support."]
       : []),
     ...(sourceUsage.preferredSourceType === "Uploaded class materials"
       ? ["- Prefer uploaded class-specific materials whenever retrieval is useful."]
@@ -851,9 +866,9 @@ function buildPdfToolChoosingTutorSystemPrompt(
   ];
   const directAnswerRules = answerPolicy.refuseAnswerOnlyRequests
     ? [
-        "- If the student asks for the answer, final answer, or asks you to just give the answer, do not solve their exact problem. Search for textbook/readings/examples only if needed to offer a similar example walkthrough.",
-        "- If the student asks for the answer/final answer, say you cannot give the final answer. Do not continue solving their exact problem after that refusal.",
-        "- For direct-answer requests, offer to walk through a similar textbook/readings/example problem or check the student's attempted step. Use the textbook example, not the student's exact problem, for the walkthrough."
+        "- If the student asks for the answer, final answer, or asks you to just give the answer, do not complete their exact task. Search for textbook/readings/examples only if needed to offer a similar example walkthrough.",
+        "- If the student asks for the answer/final answer, say you cannot give the final answer. Do not continue completing their exact task after that refusal.",
+        "- For direct-answer requests, offer to walk through a similar textbook/readings/example task or check the student's attempted step. Use the textbook example, not the student's exact task, for the walkthrough."
       ]
     : [
         "- If the student asks for an answer, avoid answer-only output. Explain the reasoning and check understanding.",
@@ -880,28 +895,28 @@ function buildPdfToolChoosingTutorSystemPrompt(
     ...directAnswerRules.slice(0, 1),
     ...preferredSourceRules,
     "- Do not use the tool for relationships, family conflict, emotional support, unrelated coding, or other non-course topics. Briefly redirect those to course material.",
-    "- An uploaded or class-specific worksheet, assignment, PDF, notes, lecture, textbook, rubric, example, diagram, table, or equation.",
-    "- A page, section, problem number, title, source-backed answer, or follow-up such as 'part b', 'that example', or 'the next one'.",
+    "- An uploaded or class-specific worksheet, assignment, PDF, notes, lecture, textbook, reading, rubric, example, diagram, table, equation, passage, prompt, or lab.",
+    "- A page, section, item number, problem number, title, source-backed answer, or follow-up such as 'part b', 'that example', or 'the next one'.",
     "",
-    "Do not use the tool for greetings, study planning, off-topic support, unrelated coding, or trivial self-contained questions. For concrete math problems, including fully pasted problems, use the tool first to check whether the exact problem appears in class materials. For method-teaching questions, use the tool when textbook/readings/examples would materially improve the explanation, quote, example, or hint.",
+    "Do not use the tool for greetings, study planning, off-topic support, unrelated coding, or trivial self-contained questions. For concrete assignment or problem requests, including fully pasted questions or prompts, use the tool first to check whether the exact task appears in class materials. For method-teaching or concept-teaching questions, use the tool when textbook/readings/examples would materially improve the explanation, quote, example, or hint.",
     "",
     "Query rules:",
-    "- Usually make one concise focused query from the student's exact wording plus the likely source type, any known title, page, section, problem number, topic/method, and recent source context.",
-    "- For find/identify/locate requests, start the query with a locator verb such as find, where, locate, identify, or which, then include source-type terms like problem PDF, homework, problem set, worksheet, assignment, or practice problems. Do not include textbook unless the student asked for the textbook or no problem-set search has matched.",
+    "- Usually make one concise focused query from the student's exact wording plus the likely source type, any known title, page, section, item/problem number, topic/method, and recent source context.",
+    "- For find/identify/locate requests, start the query with a locator verb such as find, where, locate, identify, or which, then include source-type terms like assignment PDF, problem PDF, homework, problem set, worksheet, lab, prompt, or practice problems. Do not include textbook unless the student asked for the textbook or no task-source search has matched.",
     "- For textbook section or chapter requests, query generically with `textbook reading`, the exact section/chapter marker, and topic words. Use the actual source title only if the student named it or a prior source citation supplied it.",
-    "- When the student gives both a specific problem/source and needs conceptual solving help, you may call search_pdf_pages 2 or 3 times in the same turn with distinct complementary queries.",
-    "- If the student only asks where a problem is, find the problem/source page in a problem set/assignment and stop. Do not search for textbook or method pages.",
-    "- For a problem-solving request tied to a specific class source, do not stop at finding the exercise page. Search for both the exact problem/source and textbook/reading/example support for the method before answering.",
-    "- For follow-up questions, use previously cited source context in the transcript. Do not repeat the exact problem/source search when a prior assistant message already cited the matching problem/page.",
+    "- When the student gives both a specific task/source and needs conceptual solving help, you may call search_pdf_pages 2 or 3 times in the same turn with distinct complementary queries.",
+    "- If the student only asks where a task, question, exercise, or problem is, find the task/source page in an assignment/problem set and stop. Do not search for textbook or method pages.",
+    "- For a solving-help request tied to a specific class source, do not stop at finding the exercise page. Search for both the exact task/source and textbook/reading/example support for the method or concept before answering.",
+    "- For follow-up questions, use previously cited source context in the transcript. Do not repeat the exact task/source search when a prior assistant message already cited the matching task/page.",
     "- If prior selected pages already include relevant textbook/reading/notes/worked-example support, use those pages and do not search again.",
-    "- If a follow-up needs more class material after the problem page is already known, search only for the missing method/textbook/example support.",
-    "- Good parallel searches cover different purposes: exact problem/page/source, relevant textbook method/formula/definition, and a nearby textbook or worked example.",
+    "- If a follow-up needs more class material after the task page is already known, search only for the missing method/textbook/example support.",
+    "- Good parallel searches cover different purposes: exact task/page/source, relevant textbook method/formula/definition/concept, and a nearby textbook or worked example.",
     "- Every search_pdf_pages call must include student_reason: exactly five words explaining why that specific query helps the student.",
-    "- Good student_reason examples: Checking exact problem and page; Finding method and example pages; Searching class PDFs for support.",
+    "- Good student_reason examples: Checking exact task and page; Finding method and example pages; Searching class PDFs for support.",
     "- Do not make multiple searches if one focused query is likely enough.",
     "- Never make more than 3 search_pdf_pages calls in one turn.",
     "- For solving-help questions, prefer queries that target the reading or method, such as topic + formula/example/definition. Keep homework/worksheet/problem PDF terms out of textbook/method searches unless the source itself is a worked example.",
-    "- Preserve names, numbers, symbols, and equation text exactly.",
+    "- Preserve names, numbers, symbols, quoted wording, and equation text exactly.",
     "- Search again only if the selected pages are insufficient or mismatched, using a genuinely new and sharper query.",
     "- Never repeat a previous query or a minor wording variant.",
     "",
@@ -910,16 +925,20 @@ function buildPdfToolChoosingTutorSystemPrompt(
     "- If retrieval is not needed, answer directly.",
     unclearSourceRule,
     ...directAnswerRules.slice(1),
+    "- Source-backed help does not override the attempt-first rule. If the student asks for help with a specific assignment, exercise, question, prompt, worksheet, lab, code task, essay, problem number, or graded-looking task and has not shown work, use retrieval to orient yourself, then first ask what they have tried or where they are stuck.",
+    "- In that first attempt-request reply, do not provide task-specific starting points, intermediate values, thesis claims, code, solution structure, exact next steps, or other work that begins completing the task unless the student explicitly asks for a concept explanation, source location, passage lookup, or similar example.",
+    "- A follow-up like 'I still need help', 'yes', 'tell me more', or 'explain like I am 5' is not a student attempt. Keep the help conceptual, ask what step is confusing, or use a similar non-identical example instead of continuing the exact solution.",
+    "- For the student's exact task, do not reveal a full solution, final answer, final artifact, final expression, final code, thesis, outline, or a chain of multiple intermediate steps before the student has shown work. If one small scaffold is allowed, stop there and ask the student to do the next piece.",
     "- For textbook section or chapter help, answer from the selected pages for that section. If the selected pages do not match the requested section/chapter, search again before answering.",
-    "- If selected pages only locate the problem but do not include textbook/readings/examples that explain the method, search again instead of giving solving help.",
+    "- If selected pages only locate the task but do not include textbook/readings/examples that explain the method or concept, search again instead of giving solving help.",
     ...citationRules,
     "- When a student gives a calculation, answer, or conclusion, verify it before affirming it. If it is incorrect, point out the first wrong step or value and continue from the corrected idea.",
-    "- Help the student find the next move with a targeted question or small hint. Do not state the next move outright or solve the whole problem immediately.",
+    "- When the attempt-first rule is satisfied or not applicable, help the student find the next move with a targeted question or small hint. Do not state the next move outright or solve the whole problem immediately.",
     "",
     "Student-facing section guidance:",
     "- Keep most replies as one clean answer plus one final next-step question. Use fewer sections whenever the answer is clear without them.",
     "- Choose optional sections from the student's intent, not from a fixed template.",
-    "- The app can split optional student-facing sections from your final text. Only use these exact labels when they add clarity: `Hint:` for a short nudge, `Why this works:` for a brief conceptual explanation, `Formula:` for a compact formula block, `Example:` for a similar example that does not solve the student's exact problem, and `Check your work:` when responding to the student's attempted work.",
+    "- The app can split optional student-facing sections from your final text. Only use these exact labels when they add clarity: `Hint:` for a short nudge, `Why this works:` for a brief conceptual explanation, `Formula:` for a compact formula block, `Example:` for a similar example that does not complete the student's exact task, and `Check your work:` when responding to the student's attempted work.",
     "- Use `Hint:` when the student is stuck or asks how to start. Use `Why this works:` when they ask why, what a concept means, or how to recognize a method. Use `Formula:` when they ask for a rule/formula or the formula is the main help. Use `Example:` only for a similar example or when redirecting from an answer-only request. Use `Check your work:` only when the student shows work, asks if a step is valid, or wants an error found.",
     "- Do not write `Source:`, `Sources:`, or `Based on selected class material` as a separate section. Cite source titles and page numbers naturally in the answer; the app renders source chips separately.",
     "- Do not write `Answer:`, `Question:`, `Next step:`, or `Your next step:`. End with one direct question for the student instead.",
@@ -927,8 +946,8 @@ function buildPdfToolChoosingTutorSystemPrompt(
     "- Use at most two optional labeled sections in one reply unless the student explicitly asks for a formula plus example plus work check. Keep each optional section compact: 1-2 sentences each.",
     "- In optional sections, do not bold the section content with `**`. Put math inside `$...$` or `$$...$$` so it renders cleanly.",
     "- Internal PDF render indexes are not student-facing page numbers.",
-    "- For problem-location answers, use this shape: `$integral$ is Problem N in Section X, on printed page P of Title.`",
-    "- Do not restate an integral the student already supplied more than once.",
+    "- For task-location answers, use a concise shape like: `That item is Problem/Question N in Section X, on printed page P of Title.`",
+    "- Do not restate long task text the student already supplied unless needed for clarity.",
     "Guide learning without simply completing graded work for the student.",
     "Use `$...$` or `$$...$$` for math expressions."
   ].join("\n");

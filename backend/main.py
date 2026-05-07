@@ -64,6 +64,7 @@ class LangGraphChatRequest(BaseModel):
     reasoningEffort: Optional[str] = None
     answerPolicy: Optional[dict[str, Any]] = None
     sourceUsage: Optional[dict[str, Any]] = None
+    studentLearningProfileContext: Optional[dict[str, Any]] = None
     messages: list[dict[str, Any]]
 
 
@@ -99,6 +100,7 @@ async def langgraph_chat(
         reasoning_effort=request.reasoningEffort,
         answer_policy=request.answerPolicy,
         source_usage=request.sourceUsage,
+        student_profile_context=request.studentLearningProfileContext,
         professor_id=request.professorId,
         professor_name=request.professorName,
     )
@@ -133,6 +135,7 @@ async def langgraph_chat_stream(
                 reasoning_effort=request.reasoningEffort,
                 answer_policy=request.answerPolicy,
                 source_usage=request.sourceUsage,
+                student_profile_context=request.studentLearningProfileContext,
                 professor_id=request.professorId,
                 professor_name=request.professorName,
             ):
@@ -565,11 +568,11 @@ async def build_tutor_system_prompt(course_id: str, retrieval_hits: list[dict[st
         model_settings = normalize_model_settings((teacher_class or {}).get("modelSettings"))
         behavior_instructions = (teacher_class or {}).get(
             "behaviorInstructions",
-            "Guide the student through the next step without simply giving final answers.",
+            "Ask what the student has tried before giving task-specific hints.",
         )
         refusal_style = (teacher_class or {}).get(
             "refusalStyle",
-            "If a student asks for a direct answer, redirect them toward the next useful step.",
+            "If a student asks for a direct answer, ask what they have tried, offer to check their work, or walk through a similar example instead.",
         )
         instructions = [
             line.strip()
@@ -635,7 +638,7 @@ def build_core_tutor_instructions(
         "Tutoring method:",
         *tutor_behavior_lines(policy_title),
         *answer_policy_lines(answer_policy),
-        "- Give the smallest useful hint before giving a larger explanation.",
+        "- When the attempt-first rule is satisfied or not applicable, give the smallest useful hint before giving a larger explanation.",
         "- When a student gives a calculation, answer, or conclusion, verify it before affirming it. If it is incorrect, point out the first wrong step or value and continue from the corrected idea.",
         "",
         "Academic integrity boundaries:",
@@ -755,14 +758,20 @@ def tutor_behavior_lines(policy_title: str) -> list[str]:
         ]
     return [
         "- Tutor behavior mode: Guided problem solving.",
-        "- Start from the student's work when possible: ask what they tried, inspect their step, or ask them to choose the next move.",
+        "- Start from the student's work: ask what they tried, inspect their step, or ask them to choose the next move before hinting.",
     ]
 
 
 def answer_policy_lines(answer_policy: dict[str, bool]) -> list[str]:
     return [
         *(
-            ["- Require a student attempt before substantial help on graded-looking work."]
+            [
+                "- Require a student attempt before substantial help on graded-looking work.",
+                "- If a student asks for help with a specific assignment, exercise, question, prompt, worksheet, lab, code task, essay, problem number, or graded-looking task and has not shown work, first ask what they have tried or where they are stuck.",
+                "- In that first attempt-request reply, do not provide task-specific starting points, intermediate values, thesis claims, code, solution structure, exact next steps, or other work that begins completing the task unless the student explicitly asks for a concept explanation, source location, passage lookup, or similar example.",
+                "- A follow-up like 'I still need help', 'yes', 'tell me more', or 'explain like I am 5' is not a student attempt. Keep the help conceptual, ask what step is confusing, or use a similar non-identical example instead of continuing the exact solution.",
+                "- For the student's exact task, do not reveal a full solution, final answer, final artifact, final expression, final code, thesis, outline, or a chain of multiple intermediate steps before the student has shown work. If one small scaffold is allowed, stop there and ask the student to do the next piece.",
+            ]
             if answer_policy["requireStudentAttemptFirst"]
             else ["- A student attempt is helpful but not required before conceptual help."]
         ),
@@ -772,7 +781,7 @@ def answer_policy_lines(answer_policy: dict[str, bool]) -> list[str]:
             else ["- You may explain directly when that is clearer than asking a question first."]
         ),
         *(
-            ["- You may provide worked examples when they are similar but not the student's exact graded problem."]
+            ["- You may provide worked examples when they are similar but not the student's exact graded task."]
             if answer_policy["allowWorkedExamples"]
             else ["- Avoid full worked examples unless teacher instructions explicitly allow them."]
         ),
@@ -787,7 +796,7 @@ def academic_integrity_lines(answer_policy: dict[str, bool]) -> list[str]:
             else ["- You may give final answers when useful, but still explain reasoning and avoid completing graded work wholesale."]
         ),
         *(
-            ["- If the student asks for a direct answer, say you cannot give the final answer and redirect to a hint, a check of their attempt, or the next useful step."]
+            ["- If the student asks for a direct answer, say you cannot give the final answer, ask what they have tried, and offer to check their work or walk through a similar example."]
             if answer_policy["refuseAnswerOnlyRequests"]
             else ["- If the student asks for a direct answer, avoid answer-only output; explain the reasoning and check understanding."]
         ),
@@ -923,7 +932,7 @@ def create_demo_tutor_response(question: str, retrieval_hits: list[dict[str, Any
     return (
         "Let's slow the problem down into one move.\n\n"
         "What is the first thing the question is asking you to find or transform? "
-        "If you paste the exact problem, I will help you choose the next step without jumping straight to the answer."
+        "If you paste the exact task, I will help you choose the next step without jumping straight to the answer."
         f"{source_line}"
     )
 

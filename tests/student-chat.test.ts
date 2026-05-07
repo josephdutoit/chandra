@@ -601,25 +601,45 @@ test("student chat does not fail when optional prep data is unavailable", () => 
   assert.match(source, /return null/);
 });
 
+test("student learning profile context is sent privately to backend", () => {
+  const routeSource = readFileSync(join(repoRoot, "app/api/chat/route.ts"), "utf8");
+  const backendSource = readFileSync(join(repoRoot, "backend/main.py"), "utf8");
+
+  assert.match(routeSource, /studentLearningProfileContext: privateBackendLearningProfileContext\(studentLearningProfileContext\)/);
+  assert.match(routeSource, /strategiesToTryNext/);
+  assert.match(routeSource, /availableStrategies/);
+  assert.match(backendSource, /studentLearningProfileContext: Optional\[dict\[str, Any\]\] = None/);
+  assert.match(backendSource, /student_profile_context=request\.studentLearningProfileContext/);
+});
+
 test("pdf tool prompt uses textbook readings for solving help", () => {
   const routeSource = readFileSync(join(repoRoot, "app/api/chat/route.ts"), "utf8");
   const promptSource = readFileSync(join(repoRoot, "lib/prompts.ts"), "utf8");
 
-  assert.match(routeSource, /search the problem PDF first/);
-  assert.match(routeSource, /Do not search textbook\/readings unless no problem-set match is found/);
-  assert.match(routeSource, /concrete math problem, including a fully pasted problem/);
-  assert.match(routeSource, /Check problem PDFs, worksheets, assignments, practice problems, and textbook sections before helping/);
+  assert.match(routeSource, /search the assignment\/problem PDF first/);
+  assert.match(routeSource, /Do not search textbook\/readings unless no task-source match is found/);
+  assert.match(routeSource, /concrete assignment or problem, including a fully pasted question or prompt/);
+  assert.match(routeSource, /Check problem PDFs, worksheets, assignments, labs, prompts, practice problems, readings, and textbook sections before helping/);
   assert.match(routeSource, /textbook section or chapter/);
   assert.match(routeSource, /do not assume a particular textbook title/);
   assert.match(routeSource, /query generically with `textbook reading`/);
-  assert.match(routeSource, /use the tool first to check whether the exact problem appears in class materials/);
+  assert.match(routeSource, /use the tool first to check whether the exact task appears in class materials/);
   assert.match(routeSource, /prefer queries that target the reading or method/);
-  assert.match(routeSource, /Do not repeat the exact problem\/source search/);
+  assert.match(routeSource, /Do not repeat the exact task\/source search/);
   assert.match(routeSource, /use those pages and do not search again/);
-  assert.match(routeSource, /do not solve their exact problem/);
-  assert.match(routeSource, /similar textbook\/readings\/example problem/);
+  assert.match(routeSource, /do not complete their exact task/);
+  assert.match(routeSource, /similar textbook\/readings\/example task/);
   assert.match(routeSource, /verify it before affirming it/);
   assert.match(promptSource, /verify it before affirming it/);
+  assert.match(routeSource, /Source-backed help does not override the attempt-first rule/);
+  assert.match(routeSource, /first ask what they have tried or where they are stuck/);
+  assert.match(routeSource, /do not provide task-specific starting points/);
+  assert.match(routeSource, /explain like I am 5' is not a student attempt/);
+  assert.match(routeSource, /do not reveal a full solution, final answer, final artifact/);
+  assert.match(promptSource, /first ask what they have tried or where they are stuck/);
+  assert.match(promptSource, /do not provide task-specific starting points/);
+  assert.match(promptSource, /explain like I am 5' is not a student attempt/);
+  assert.match(promptSource, /do not reveal a full solution, final answer, final artifact/);
   assert.match(routeSource, /relationships, family conflict, emotional support, unrelated coding/);
   assert.match(routeSource, /Briefly redirect those to course material/);
   assert.match(routeSource, /quote the relevant passage exactly/);
@@ -634,12 +654,12 @@ test("pdf tool prompt uses textbook readings for solving help", () => {
   assert.match(routeSource, /Use at most two optional labeled sections/);
   assert.match(routeSource, /Do not write `Source:`, `Sources:`, or `Based on selected class material`/);
   assert.match(routeSource, /Do not write `Answer:`, `Question:`/);
-  assert.match(promptSource, /Do not continue solving their exact problem/);
-  assert.match(promptSource, /similar textbook\/readings\/example problem/);
+  assert.match(promptSource, /Do not continue completing their exact task/);
+  assert.match(promptSource, /similar textbook\/readings\/example task/);
   assert.match(promptSource, /Only help with this class/);
   assert.match(promptSource, /Do not write unrelated code/);
-  assert.match(promptSource, /search the problem PDF first/);
-  assert.match(promptSource, /concrete math problem the student asks about, including fully pasted problems/);
+  assert.match(promptSource, /search the assignment\/problem PDF first/);
+  assert.match(promptSource, /concrete assignment or problem the student asks about, including fully pasted questions or prompts/);
   assert.match(promptSource, /Check whether it appears in uploaded problem PDFs/);
   assert.match(promptSource, /search generically with textbook\/reading/);
   assert.match(promptSource, /from any indexed textbook\/reading/);
