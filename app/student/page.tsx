@@ -531,9 +531,9 @@ function StudentWorkspace() {
           </header>
 
           {pinnedTeacherInstructions ? (
-            <section className="student-teacher-instructions" aria-label="Teacher instructions">
+            <section className="student-teacher-instructions" aria-label="Class instructions">
               <div>
-                <strong className="student-instructions-heading">Teacher instructions</strong>
+                <strong className="student-instructions-heading">Class instructions</strong>
                 <p>{pinnedTeacherInstructions}</p>
               </div>
             </section>

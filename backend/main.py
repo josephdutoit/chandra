@@ -1052,7 +1052,7 @@ async def call_openrouter(model_id: Optional[str], system_prompt: str, messages:
         payload["reasoning"] = {"effort": reasoning_effort}
     headers = {
         "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
-        "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:3000"),
+        "HTTP-Referer": openrouter_http_referer(),
         "X-Title": os.getenv("OPENROUTER_APP_TITLE", "Chandra"),
     }
 
@@ -1080,6 +1080,18 @@ def create_demo_tutor_response(question: str, retrieval_hits: list[dict[str, Any
         "If you paste the exact task, I will help you choose the next step without jumping straight to the answer."
         f"{source_line}"
     )
+
+
+def openrouter_http_referer() -> str:
+    configured = (os.getenv("OPENROUTER_HTTP_REFERER") or os.getenv("FRONTEND_ORIGIN") or "").strip()
+
+    if configured:
+        return configured.rstrip("/")
+
+    if is_production_environment():
+        raise RuntimeError("OPENROUTER_HTTP_REFERER or FRONTEND_ORIGIN is required in production.")
+
+    return "http://localhost:3000"
 
 
 def legacy_openrouter_http_client() -> httpx.AsyncClient:

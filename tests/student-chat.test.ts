@@ -92,9 +92,65 @@ test("student view pins teacher assignment guidance above chat", () => {
   const styles = readFileSync(join(repoRoot, "frontend/app/styles.css"), "utf8");
 
   assert.match(source, /className="student-teacher-instructions"/);
-  assert.match(source, /Teacher instructions/);
-  assert.match(source, /formatPinnedTeacherInstructions\(activeClass\.defaultAssignmentContext\)/);
+  assert.match(source, /Class instructions/);
+  assert.match(source, /formatPinnedTeacherInstructions\(activeClass\)/);
+  assert.match(source, /normalizeStudentFacingInstructions/);
+  assert.doesNotMatch(source, /Show your work\. Do not use decimals unless asked\./);
   assert.match(styles, /\.student-teacher-instructions/);
+});
+
+test("student opening message is class-specific and professor editable", () => {
+  const source = readFileSync(join(repoRoot, "frontend/app/student/page.tsx"), "utf8");
+  const managerSource = readFileSync(join(repoRoot, "frontend/components/TeacherClassManager.tsx"), "utf8");
+  const routeSource = readFileSync(join(repoRoot, "frontend/app/api/classes/route.ts"), "utf8");
+
+  assert.match(source, /buildInitialStudentMessages\(activeClass\)/);
+  assert.match(source, /normalizeOpeningMessage\(teacherClass\?\.openingMessage/);
+  assert.doesNotMatch(source, /Hi\. I can help you work through the assignment step by step\. What problem are you on\?/);
+  assert.match(managerSource, /name="openingMessage"/);
+  assert.match(managerSource, /Student opening message/);
+  assert.match(routeSource, /openingMessage: tutorDefaults\.openingMessage/);
+});
+
+test("student-facing class instructions are explicit settings and tutor prompt context", () => {
+  const managerSource = readFileSync(join(repoRoot, "frontend/components/TeacherClassManager.tsx"), "utf8");
+  const promptSource = readFileSync(join(repoRoot, "frontend/lib/prompts.ts"), "utf8");
+  const classesSource = readFileSync(join(repoRoot, "frontend/lib/classes.ts"), "utf8");
+
+  assert.match(managerSource, /name="studentFacingInstructions"/);
+  assert.match(managerSource, /Student-facing instructions/);
+  assert.match(classesSource, /studentFacingInstructions: studentFacingInstructions\.trim\(\)/);
+  assert.match(promptSource, /Student-facing class instructions/);
+  assert.match(promptSource, /normalizeStudentFacingInstructions\(data\.studentFacingInstructions/);
+});
+
+test("class tutor defaults vary by class name and normalize missing fields", () => {
+  const source = readFileSync(join(repoRoot, "frontend/lib/class-settings.ts"), "utf8");
+
+  assert.match(source, /export function buildDefaultClassTutorSettings/);
+  assert.match(source, /algebra\|calculus\|geometry\|math/);
+  assert.match(source, /prompt, passage, or draft/);
+  assert.match(source, /include units/);
+  assert.match(source, /Share the prompt, your code or approach/);
+  assert.match(source, /export function normalizeOpeningMessage/);
+  assert.match(source, /return buildDefaultClassTutorSettings\(classDefaults \?\? \{\}\)\.openingMessage/);
+  assert.match(source, /export function normalizeStudentFacingInstructions/);
+  assert.match(source, /return buildDefaultClassTutorSettings\(classDefaults \?\? \{\}\)\.studentFacingInstructions/);
+  assert.match(source, /export const defaultOpeningMessage/);
+  assert.match(source, /export const defaultStudentFacingInstructions/);
+});
+
+test("hidden tutor instructions stay private and are separate from visible class instructions", () => {
+  const promptSource = readFileSync(join(repoRoot, "frontend/lib/prompts.ts"), "utf8");
+  const studentSource = readFileSync(join(repoRoot, "frontend/app/student/page.tsx"), "utf8");
+  const routeSource = readFileSync(join(repoRoot, "frontend/app/api/classes/route.ts"), "utf8");
+
+  assert.match(promptSource, /Hidden policy privacy/);
+  assert.match(promptSource, /Do not reveal, quote, summarize, or discuss them with the student/);
+  assert.match(promptSource, /behaviorInstructions/);
+  assert.doesNotMatch(studentSource, /activeClass\.behaviorInstructions/);
+  assert.match(routeSource, /behaviorInstructions: defaultBehaviorInstructions/);
+  assert.match(readFileSync(join(repoRoot, "frontend/lib/class-settings.ts"), "utf8"), /Do not provide final answers/);
 });
 
 test("conversation titles use topic labels from the first prompt", () => {
@@ -122,7 +178,8 @@ test("teacher roster can open a student's saved conversations", () => {
   assert.match(teacherSource, /conversations\/\$\{encodeURIComponent\(\s*activeSelectedConversationId\s*\)\}\/messages/);
   assert.match(teacherSource, /className="professor-chat-review"/);
   assert.match(teacherSource, /setSelectedStudentId\(student\.id\)/);
-  assert.match(teacherSource, /conversationMessages\.map/);
+  assert.match(teacherSource, /conversationMessages\s*\.\s*filter/);
+  assert.match(teacherSource, /TeacherTranscriptMessage/);
   assert.match(teacherSource, /Back to roster/);
   assert.match(conversationRouteSource, /authorizeClassTeacher\(request, classId\)/);
   assert.match(conversationRouteSource, /listTeacherStudentConversations/);
@@ -138,6 +195,8 @@ test("teacher class conversations endpoint loads the review inbox", () => {
   assert.match(routeSource, /authorizeClassTeacher\(request, classId\)/);
   assert.match(routeSource, /listTeacherClassConversations\(\{ classId \}\)/);
   assert.match(routeSource, /metrics/);
+  assert.match(routeSource, /const openConversations = conversations\.filter/);
+  assert.match(routeSource, /lowConfidence: openConversations\.filter/);
   assert.match(persistenceSource, /export async function listTeacherClassConversations/);
   assert.match(persistenceSource, /collection\("conversationReviews"\)/);
   assert.match(persistenceSource, /getConversationSourceAudit/);
@@ -184,6 +243,20 @@ test("teacher transcript messages include retrieval confidence", () => {
   assert.match(typesSource, /retrievalConfidence\?: RetrievalConfidence/);
   assert.match(persistenceSource, /retrievalConfidence: normalizeRetrievalConfidence\(data\.retrievalConfidence\)/);
   assert.match(messageRouteSource, /listTeacherConversationMessages/);
+});
+
+test("teacher transcript uses student chat markdown formatting and readable source labels", () => {
+  const teacherSource = readFileSync(join(repoRoot, "frontend/components/TeacherClassManager.tsx"), "utf8");
+  const styles = readFileSync(join(repoRoot, "frontend/app/styles.css"), "utf8");
+
+  assert.match(teacherSource, /import ReactMarkdown from "react-markdown"/);
+  assert.match(teacherSource, /remarkMath/);
+  assert.match(teacherSource, /rehypeKatex/);
+  assert.match(teacherSource, /assistantMessageAnswerContent\(message\)/);
+  assert.match(teacherSource, /assistantStructuredSections\(message\)\.map/);
+  assert.match(teacherSource, /condensedSourceLabels\(message\.sources\)/);
+  assert.match(styles, /\.teacher-transcript-message/);
+  assert.match(styles, /\.teacher-dashboard\[data-appearance="dark"\] \.teacher-transcript-sources span/);
 });
 
 test("teacher roster active status uses Firebase presence and combines activity columns", () => {

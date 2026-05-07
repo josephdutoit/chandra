@@ -86,6 +86,18 @@ env:
     value: openai/gpt-5.4-mini
     availability:
       - RUNTIME
+  - variable: FRONTEND_ORIGIN
+    value: https://chandra-frontend--chandra-f6e13.us-central1.hosted.app
+    availability:
+      - RUNTIME
+  - variable: OPENROUTER_HTTP_REFERER
+    value: https://chandra-frontend--chandra-f6e13.us-central1.hosted.app
+    availability:
+      - RUNTIME
+  - variable: OPENROUTER_APP_TITLE
+    value: Chandra
+    availability:
+      - RUNTIME
 
   - variable: BACKEND_API_BASE_URL
     # Bare Cloud Run origin for chandra-backend; keep this as an origin only,

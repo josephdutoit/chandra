@@ -189,15 +189,7 @@ function buildPriorityRows(
 
 function buildReviewQueueRows(conversations: TeacherConversationReviewSummary[]): TeacherClassOverviewReviewQueueRow[] {
   return conversations
-    .filter(
-      (conversation) =>
-        conversation.reviewStatus === "new" ||
-        conversation.reviewStatus === "needs_follow_up" ||
-        conversation.reviewStatus === "misunderstanding_spotted" ||
-        conversation.reviewStatus === "ai_answer_needs_review" ||
-        conversation.sourceAudit.lowSourceConfidence ||
-        conversation.topic.toLowerCase().includes("off-topic")
-    )
+    .filter(conversationNeedsTeacherReview)
     .slice(0, maxReviewRows)
     .map((conversation) => ({
       conversationId: conversation.id,
@@ -211,6 +203,15 @@ function buildReviewQueueRows(conversations: TeacherConversationReviewSummary[])
       title: conversation.title,
       tone: reviewQueueTone(conversation)
     }));
+}
+
+function conversationNeedsTeacherReview(conversation: Pick<TeacherConversationReviewSummary, "reviewStatus">) {
+  return (
+    conversation.reviewStatus === "new" ||
+    conversation.reviewStatus === "needs_follow_up" ||
+    conversation.reviewStatus === "misunderstanding_spotted" ||
+    conversation.reviewStatus === "ai_answer_needs_review"
+  );
 }
 
 async function buildLearningProfileRows(classId: string): Promise<TeacherClassOverviewLearningProfileRow[]> {

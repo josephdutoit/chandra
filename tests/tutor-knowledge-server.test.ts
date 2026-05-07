@@ -87,3 +87,19 @@ test("material settings PATCH preserves omitted visibility fields", () => {
   assert.match(routeSource, /requireCitations: body\.requireCitations/);
   assert.doesNotMatch(routeSource, /Boolean\(body\.(?:activeForStudents|requireCitations|teacherOnly)\)/);
 });
+
+test("tutor knowledge supports direct Storage upload and guarded URL ingestion", () => {
+  const source = readFileSync(join(repoRoot, "frontend/lib/tutor-knowledge-server.ts"), "utf8");
+  const componentSource = readFileSync(join(repoRoot, "frontend/components/TeacherClassManager.tsx"), "utf8");
+
+  assert.match(componentSource, /uploadBytesResumable/);
+  assert.match(componentSource, /storagePath/);
+  assert.match(componentSource, /Paste URL/);
+  assert.match(source, /readUploadedStorageSource/);
+  assert.match(source, /extractChunksFromUrl/);
+  assert.match(source, /downloadTutorKnowledgeUrl/);
+  assert.match(source, /validatePublicTutorKnowledgeUrl/);
+  assert.match(source, /Private, local, and internal URLs are not supported/);
+  assert.match(source, /originalSourceUrl/);
+  assert.match(source, /text\/html/);
+});

@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { ref as storageRef, uploadBytesResumable } from "firebase/storage";
+import { FormEvent, type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
+import remarkMath from "remark-math";
 import { apiUrl } from "@/lib/api-client";
 import { signOutCurrentUser, updateUserThemePreference } from "@/lib/auth";
 import {
@@ -15,8 +19,10 @@ import {
   mathNotationOptions,
   normalizeAnswerPolicySettings,
   normalizeClassModelSettings,
+  normalizeOpeningMessage,
   normalizeResponseFormatSettings,
   normalizeSourceUsageSettings,
+  normalizeStudentFacingInstructions,
   normalizeTutorBehavior,
   preferredSourceTypeOptions,
   readingLevelOptions,
@@ -41,6 +47,7 @@ import {
   type ClassStudent,
   type TeacherClass
 } from "@/lib/classes";
+import { storage } from "@/lib/firebase";
 import { defaultModelOptions } from "@/lib/model-options";
 import {
   formatBytes,
@@ -73,6 +80,7 @@ type MaterialUploadProgress = {
 };
 
 type TeacherTab = "overview" | "roster" | "settings" | "knowledge" | "insights" | "conversations";
+type SettingsPane = "general" | "guidance" | "answerPolicy" | "model" | "response" | "sources" | "invites" | "appearance";
 type KnowledgeFilter = "All" | "Assignments" | "Textbook" | "Notes" | "Worked Examples" | "Rubrics" | "Answer Keys";
 type RosterFilter = "all" | "active" | "inactive" | "highQuestions" | "noConversations";
 type ConversationFilter =
@@ -82,7 +90,8 @@ type ConversationFilter =
   | "highMessageCount"
   | "noTeacherReview"
   | "offTopic"
-  | "lowConfidence";
+  | "lowConfidence"
+  | "reviewed";
 type RosterConversationPreview = {
   id: string;
   lastMessageAt: unknown;
@@ -177,6 +186,62 @@ const teacherTabs: Array<{ id: TeacherTab; label: string }> = [
   { id: "settings", label: "Settings" }
 ];
 
+const settingsPanes: Array<{
+  description: string;
+  icon: ReactNode;
+  id: SettingsPane;
+  label: string;
+}> = [
+  {
+    description: "Name, section, opening copy",
+    icon: <BookOpenIcon />,
+    id: "general",
+    label: "General"
+  },
+  {
+    description: "Tutor behavior and redirects",
+    icon: <ChatIcon />,
+    id: "guidance",
+    label: "Guidance"
+  },
+  {
+    description: "Integrity guardrails",
+    icon: <CheckCircleIcon />,
+    id: "answerPolicy",
+    label: "Answer Policy"
+  },
+  {
+    description: "Model, thinking, length",
+    icon: <LightbulbIcon />,
+    id: "model",
+    label: "Model"
+  },
+  {
+    description: "Reading style and notation",
+    icon: <NoteIcon />,
+    id: "response",
+    label: "Response Format"
+  },
+  {
+    description: "Materials and citations",
+    icon: <DocumentIcon />,
+    id: "sources",
+    label: "Source Usage"
+  },
+  {
+    description: "Teacher invite links",
+    icon: <LinkIcon />,
+    id: "invites",
+    label: "Invites"
+  },
+  {
+    description: "Theme and display",
+    icon: <EyeIcon />,
+    id: "appearance",
+    label: "Appearance"
+  }
+];
+
 const rosterFilters: Array<{ id: RosterFilter; label: string }> = [
   { id: "all", label: "All" },
   { id: "active", label: "Active now" },
@@ -196,13 +261,14 @@ const knowledgeFilters: KnowledgeFilter[] = [
 ];
 
 const conversationFilters: Array<{ id: ConversationFilter; label: string }> = [
-  { id: "all", label: "All" },
+  { id: "all", label: "Needs review" },
   { id: "unreviewed", label: "Unreviewed" },
   { id: "activeToday", label: "Active today" },
   { id: "highMessageCount", label: "High message count" },
   { id: "noTeacherReview", label: "No teacher review yet" },
   { id: "offTopic", label: "Off-topic redirects" },
-  { id: "lowConfidence", label: "Low source confidence" }
+  { id: "lowConfidence", label: "Low source confidence" },
+  { id: "reviewed", label: "Reviewed" }
 ];
 
 const conversationReviewActions: Array<{ label: string; status: ConversationReviewStatus }> = [
@@ -219,6 +285,8 @@ const insightTimeFilters: Array<{ label: string; range: TeacherInsightRange }> =
   { label: "Last 7 days", range: "7d" },
   { label: "Last 30 days", range: "30d" }
 ];
+const markdownRemarkPlugins = [remarkMath];
+const markdownRehypePlugins = [rehypeKatex];
 
 const answerPolicySettings = [
   {
@@ -330,6 +398,7 @@ export function TeacherClassManager() {
   const [studentEmail, setStudentEmail] = useState("");
   const [studentName, setStudentName] = useState("");
   const [activeTab, setActiveTab] = useState<TeacherTab>("overview");
+  const [activeSettingsPane, setActiveSettingsPane] = useState<SettingsPane>("general");
   const [rosterSearchQuery, setRosterSearchQuery] = useState("");
   const [rosterFilter, setRosterFilter] = useState<RosterFilter>("all");
   const [conversationFilter, setConversationFilter] = useState<ConversationFilter>("all");
@@ -357,6 +426,7 @@ export function TeacherClassManager() {
   const [materialTitle, setMaterialTitle] = useState("");
   const [materialKind, setMaterialKind] = useState<TutorKnowledgeKind>("Assignment");
   const [materialFile, setMaterialFile] = useState<File | null>(null);
+  const [materialSourceUrl, setMaterialSourceUrl] = useState("");
   const [materialText, setMaterialText] = useState("");
   const [materialUploadProgress, setMaterialUploadProgress] = useState<MaterialUploadProgress | null>(null);
   const [materialSuccess, setMaterialSuccess] = useState("");
@@ -469,6 +539,10 @@ export function TeacherClassManager() {
     () => buildConversationReviewRows(classConversations, activeClassId),
     [activeClassId, classConversations]
   );
+  const openConversationReviewRows = useMemo(
+    () => conversationReviewRows.filter(conversationNeedsTeacherReview),
+    [conversationReviewRows]
+  );
   const visibleStudentConversations = useMemo(
     () =>
       studentConversations.filter(
@@ -485,12 +559,16 @@ export function TeacherClassManager() {
         visibleStudentConversations.some((conversation) => conversation.id === selectedConversationId))
         ? selectedConversationId
         : activeTab === "conversations"
-          ? conversationReviewRows[0]?.id ?? visibleStudentConversations[0]?.id ?? ""
+          ? conversationFilter === "reviewed"
+            ? conversationReviewRows.find(conversationIsReviewed)?.id ?? visibleStudentConversations[0]?.id ?? ""
+            : openConversationReviewRows[0]?.id ?? visibleStudentConversations[0]?.id ?? ""
           : visibleStudentConversations[0]?.id ?? "",
     [
       activeClassId,
       activeTab,
+      conversationFilter,
       conversationReviewRows,
+      openConversationReviewRows,
       selectedConversationClassId,
       selectedConversationId,
       visibleStudentConversations
@@ -619,6 +697,11 @@ export function TeacherClassManager() {
   const selectedModelSettings = normalizeClassModelSettings(selectedClass?.modelSettings);
   const selectedResponseFormat = normalizeResponseFormatSettings(selectedClass?.responseFormat);
   const selectedTutorBehavior = normalizeTutorBehavior(selectedClass?.behaviorTitle);
+  const selectedOpeningMessage = normalizeOpeningMessage(selectedClass?.openingMessage, selectedClass ?? undefined);
+  const selectedStudentFacingInstructions = normalizeStudentFacingInstructions(
+    selectedClass?.studentFacingInstructions,
+    selectedClass ?? undefined
+  );
   const selectedClassAppearance = normalizeTeacherClassAppearance(selectedClass?.appearance);
   const selectedClassThemeColor = normalizeTeacherClassThemeColor(selectedClass?.themeColor);
   const selectedAppearance = normalizeTeacherClassAppearance(profile?.appearance ?? selectedClass?.appearance);
@@ -627,10 +710,12 @@ export function TeacherClassManager() {
     settingsCreativityPreview?.classId === activeClassId
       ? settingsCreativityPreview.value
       : selectedModelSettings.creativity;
+  const activeSettingsSection =
+    settingsPanes.find((settingsPane) => settingsPane.id === activeSettingsPane) ?? settingsPanes[0];
   const inviteLinkCopyStatus =
     inviteLinkCopyResult?.classCode === selectedClassCode ? inviteLinkCopyResult.status : "";
   const isLoadingClassDetails = Boolean(activeClassId && loadedDetailsClassId !== activeClassId);
-  const hasTutorKnowledgeSource = Boolean(materialFile || materialText.trim());
+  const hasTutorKnowledgeSource = Boolean(materialFile || materialSourceUrl.trim() || materialText.trim());
   const accountName = profile?.displayName ?? user?.displayName ?? "Teacher";
   const accountEmail = user?.email ?? "";
   const totalConversationCount = rosterRows.reduce((sum, row) => sum + row.conversationsCount, 0);
@@ -1175,11 +1260,11 @@ export function TeacherClassManager() {
   }, [activeClassId, activeTab, teacherInsightRange, user]);
 
   useEffect(() => {
-    if (activeTab !== "conversations" || !activeClassId || activeSelectedConversationId || !conversationReviewRows.length) {
+    if (activeTab !== "conversations" || !activeClassId || activeSelectedConversationId || !openConversationReviewRows.length) {
       return;
     }
 
-    const firstConversation = conversationReviewRows[0];
+    const firstConversation = openConversationReviewRows[0];
     const selectionTimer = window.setTimeout(() => {
       setSelectedStudentId(firstConversation.studentId);
       setSelectedStudentClassId(activeClassId);
@@ -1188,7 +1273,15 @@ export function TeacherClassManager() {
     }, 0);
 
     return () => window.clearTimeout(selectionTimer);
-  }, [activeClassId, activeSelectedConversationId, activeTab, conversationReviewRows]);
+  }, [activeClassId, activeSelectedConversationId, activeTab, openConversationReviewRows]);
+
+  useEffect(() => {
+    if (activeTab !== "settings") {
+      return;
+    }
+
+    document.querySelector<HTMLElement>(".teacher-main")?.scrollTo({ top: 0 });
+  }, [activeClassId, activeSettingsPane, activeTab]);
 
   async function submitClass(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1272,10 +1365,12 @@ export function TeacherClassManager() {
           responseLength: String(formData.get("modelSettings.responseLength") ?? "")
         }),
         name: String(formData.get("name") ?? ""),
+        openingMessage: String(formData.get("openingMessage") ?? ""),
         refusalStyle: String(formData.get("refusalStyle") ?? "").trim() || defaultRefusalStyle,
         responseFormat,
         section: String(formData.get("section") ?? ""),
         sourceUsage,
+        studentFacingInstructions: String(formData.get("studentFacingInstructions") ?? ""),
         themeColor: selectedClassThemeColor
       });
     } catch (caughtError) {
@@ -1518,6 +1613,36 @@ export function TeacherClassManager() {
         ...currentNotes,
         [row.id]: data.review!.privateNote
       }));
+      const updatedRow = {
+        ...row,
+        review: data.review!,
+        status: data.review!.status
+      };
+      if (!conversationNeedsTeacherReview(updatedRow)) {
+        setClassOverview((currentOverview) =>
+          currentOverview
+            ? {
+                ...currentOverview,
+                nextActions: currentOverview.nextActions.filter((action) => action.conversationId !== row.id),
+                reviewQueueRows: currentOverview.reviewQueueRows.filter((queueRow) => queueRow.conversationId !== row.id)
+              }
+            : currentOverview
+        );
+      }
+      if (
+        !conversationMatchesFilter({
+          evidenceConversationIds,
+          filter: conversationFilter,
+          query: conversationSearchQuery,
+          row: updatedRow,
+          studentEmail: conversationStudentFilter,
+          topic: conversationTopicFilter
+        })
+      ) {
+        const nextConversation = filteredConversationReviewRows.find((conversation) => conversation.id !== row.id);
+        setSelectedConversationId(nextConversation?.id ?? "");
+        setSelectedConversationClassId(activeClassId);
+      }
       setReviewSaveMessage(status === row.status ? "Note saved" : `Marked ${formatConversationStatus(data.review.status)}`);
       setClassConversationMetrics(null);
     } catch (caughtError) {
@@ -1724,8 +1849,19 @@ export function TeacherClassManager() {
     let unsubscribeJob = () => {};
 
     try {
-      const formData = buildTutorKnowledgeFormData(activeClassId);
       const jobId = createMaterialJobId();
+      const storageUpload = materialFile
+        ? await uploadTutorKnowledgeFileToStorage({
+            classId: activeClassId,
+            file: materialFile,
+            materialId: jobId,
+            onProgress: setMaterialUploadProgress
+          })
+        : null;
+      const formData = buildTutorKnowledgeFormData(activeClassId, {
+        materialId: storageUpload ? jobId : undefined,
+        storagePath: storageUpload?.storagePath
+      });
       formData.append("jobId", jobId);
       unsubscribeJob = subscribeToMaterialJob(
         activeClassId,
@@ -1751,6 +1887,7 @@ export function TeacherClassManager() {
 
       setMaterialTitle("");
       setMaterialFile(null);
+      setMaterialSourceUrl("");
       setMaterialText("");
       setMaterialKind("Assignment");
       setFileInputKey((currentKey) => currentKey + 1);
@@ -1804,9 +1941,15 @@ export function TeacherClassManager() {
     }
   }
 
-  function buildTutorKnowledgeFormData(classId: string) {
-    if (!materialFile && !materialText.trim()) {
-      throw new Error("Add a supported file or paste tutor knowledge text before previewing.");
+  function buildTutorKnowledgeFormData(
+    classId: string,
+    storageUpload?: {
+      materialId?: string;
+      storagePath?: string;
+    }
+  ) {
+    if (!materialFile && !materialSourceUrl.trim() && !materialText.trim()) {
+      throw new Error("Add a supported file, paste a URL, or paste tutor knowledge text before previewing.");
     }
 
     const formData = new FormData();
@@ -1814,8 +1957,12 @@ export function TeacherClassManager() {
     formData.append("title", materialTitle);
     formData.append("kind", materialKind);
     formData.append("text", materialText);
+    formData.append("sourceUrl", materialSourceUrl.trim());
 
-    if (materialFile) {
+    if (storageUpload?.materialId && storageUpload.storagePath) {
+      formData.append("materialId", storageUpload.materialId);
+      formData.append("storagePath", storageUpload.storagePath);
+    } else if (materialFile) {
       validateTutorKnowledgeFile(materialFile);
       formData.append("file", materialFile);
     }
@@ -1857,6 +2004,12 @@ export function TeacherClassManager() {
     setMaterialUploadProgress(null);
   }
 
+  function handleMaterialSourceUrlChange(sourceUrl: string) {
+    setMaterialSourceUrl(sourceUrl);
+    setMaterialSuccess("");
+    setMaterialUploadProgress(null);
+  }
+
   function closeClassDialog() {
     if (isSavingClass) {
       return;
@@ -1884,6 +2037,7 @@ export function TeacherClassManager() {
 
     setMaterialTitle("");
     setMaterialFile(null);
+    setMaterialSourceUrl("");
     setMaterialText("");
     setMaterialKind("Assignment");
     setMaterialUploadProgress(null);
@@ -2202,6 +2356,7 @@ export function TeacherClassManager() {
     <>
       <section
         className="teacher-dashboard"
+        data-active-tab={activeTab}
         data-appearance={selectedAppearance}
         data-theme-color={selectedThemeColor}
         aria-label="Teacher dashboard"
@@ -2926,341 +3081,407 @@ export function TeacherClassManager() {
 
                 {activeTab === "settings" ? (
                   <form className="class-settings-form settings-workspace" key={selectedClass.id} onSubmit={submitSettings}>
-                    <div className="teacher-section-heading settings-page-heading">
-                      <div>
-                        <h2>Guidance settings</h2>
-                        <span>Control how Chandra helps students in this class</span>
+                    <aside className="settings-nav" aria-label="Class settings sections">
+                      <div className="settings-nav-heading">
+                        <h2>Settings</h2>
+                        <span>{selectedClass.name}</span>
                       </div>
-                      <button
-                        className="primary-button teacher-primary-button compact"
-                        disabled={isSavingSettings}
-                        type="submit"
-                      >
-                        {isSavingSettings ? "Saving" : "Save changes"}
-                      </button>
-                    </div>
+                      <div className="settings-nav-list">
+                        {settingsPanes.map((settingsPane) => (
+                          <button
+                            aria-current={settingsPane.id === activeSettingsPane ? "page" : undefined}
+                            className="settings-nav-row"
+                            key={settingsPane.id}
+                            type="button"
+                            onClick={() => setActiveSettingsPane(settingsPane.id)}
+                          >
+                            <span className={`settings-nav-icon ${settingsPane.id}`} aria-hidden="true">
+                              {settingsPane.icon}
+                            </span>
+                            <span className="settings-nav-copy">
+                              <strong>{settingsPane.label}</strong>
+                              <small>{settingsPane.description}</small>
+                            </span>
+                            <ChevronRightIcon />
+                          </button>
+                        ))}
+                      </div>
+                    </aside>
 
-                    <div className="settings-columns">
-                      <div className="settings-column">
-                        <section className="settings-card" aria-labelledby="settings-class-details">
-                          <h3 id="settings-class-details">Class Details</h3>
-                          <div className="settings-field-pair">
-                            <div>
-                              <label className="field-label" htmlFor="settings-name">
-                                Class name
-                              </label>
-                              <input id="settings-name" name="name" required defaultValue={selectedClass.name} />
+                    <section className="settings-detail" aria-labelledby="settings-detail-title">
+                      <div className="teacher-section-heading settings-page-heading">
+                        <div>
+                          <h2 id="settings-detail-title">{activeSettingsSection.label}</h2>
+                          <span>{activeSettingsSection.description}</span>
+                        </div>
+                        <button
+                          className="primary-button teacher-primary-button compact"
+                          disabled={isSavingSettings}
+                          type="submit"
+                        >
+                          {isSavingSettings ? "Saving" : "Save changes"}
+                        </button>
+                      </div>
+
+                      <div className="settings-pane-stack">
+                        <div className="settings-pane" hidden={activeSettingsPane !== "general"}>
+                          <section className="settings-group" aria-labelledby="settings-class-details">
+                            <h3 id="settings-class-details">Class Details</h3>
+                            <div className="settings-field-pair">
+                              <div>
+                                <label className="field-label" htmlFor="settings-name">
+                                  Class name
+                                </label>
+                                <input id="settings-name" name="name" required defaultValue={selectedClass.name} />
+                              </div>
+
+                              <div>
+                                <label className="field-label" htmlFor="settings-section">
+                                  Section
+                                </label>
+                                <input id="settings-section" name="section" required defaultValue={selectedClass.section} />
+                              </div>
                             </div>
 
-                            <div>
-                              <label className="field-label" htmlFor="settings-section">
-                                Section
-                              </label>
-                              <input id="settings-section" name="section" required defaultValue={selectedClass.section} />
-                            </div>
-                          </div>
+                            <label className="field-label" htmlFor="default-assignment-context">
+                              Default assignment context
+                            </label>
+                            <textarea
+                              id="default-assignment-context"
+                              name="defaultAssignmentContext"
+                              rows={4}
+                              defaultValue={selectedClass.defaultAssignmentContext ?? ""}
+                              placeholder="Limits and introductory derivatives"
+                            />
 
-                          <label className="field-label" htmlFor="default-assignment-context">
-                            Default assignment context
-                          </label>
-                          <textarea
-                            id="default-assignment-context"
-                            name="defaultAssignmentContext"
-                            rows={4}
-                            defaultValue={selectedClass.defaultAssignmentContext ?? ""}
-                            placeholder="Limits and introductory derivatives"
-                          />
+                            <label className="field-label" htmlFor="opening-message">
+                              Student opening message
+                            </label>
+                            <textarea
+                              id="opening-message"
+                              name="openingMessage"
+                              rows={3}
+                              defaultValue={selectedOpeningMessage}
+                              placeholder="Hi. I can help with Algebra step by step. What problem are you on?"
+                            />
 
-                          <div className="settings-theme-control" aria-label="Personal theme color" role="radiogroup">
-                            <span className="settings-control-label">Personal theme color</span>
-                            <div className="settings-theme-swatches">
-                              {teacherClassThemeColorOptions.map((option) => (
-                                <label className="settings-theme-swatch" key={option.id}>
+                            <label className="field-label" htmlFor="student-facing-instructions">
+                              Student-facing instructions
+                            </label>
+                            <textarea
+                              id="student-facing-instructions"
+                              name="studentFacingInstructions"
+                              rows={4}
+                              defaultValue={selectedStudentFacingInstructions}
+                              placeholder="Show your work. Use exact values unless asked for decimals."
+                            />
+                          </section>
+                        </div>
+
+                        <div className="settings-pane" hidden={activeSettingsPane !== "guidance"}>
+                          <section className="settings-group compact-settings-group" aria-labelledby="settings-tutor-behavior">
+                            <h3 id="settings-tutor-behavior">Tutor Behavior</h3>
+                            <p>Choose the general tutoring approach Chandra should use.</p>
+                            <div className="settings-pill-group" role="radiogroup" aria-label="Tutor behavior">
+                              {tutorBehaviorOptions.map((option) => (
+                                <label className="settings-choice-pill" key={option}>
                                   <input
-                                    checked={selectedThemeColor === option.id}
-                                    disabled={isSavingThemePreference}
-                                    name="personalThemeColor"
+                                    defaultChecked={selectedTutorBehavior === option}
+                                    name="behaviorTitle"
                                     type="radio"
-                                    value={option.id}
-                                    onChange={() => updatePersonalThemePreference({ themeColor: option.id })}
+                                    value={option}
                                   />
-                                  <span>
-                                    <span
-                                      className="settings-theme-swatch-dot"
-                                      style={{ backgroundColor: option.color }}
-                                      aria-hidden="true"
-                                    />
-                                    {option.label}
-                                  </span>
+                                  <span>{option}</span>
                                 </label>
                               ))}
                             </div>
-                          </div>
+                          </section>
 
-                          <div className="settings-appearance-control" aria-label="Personal appearance" role="radiogroup">
-                            <span className="settings-control-label">Personal appearance</span>
-                            <div className="settings-appearance-pills">
-                              {classAppearanceOptions.map((appearance) => (
-                                <label className="settings-choice-pill" key={appearance}>
-                                  <input
-                                    checked={selectedAppearance === appearance}
-                                    disabled={isSavingThemePreference}
-                                    name="personalAppearance"
-                                    type="radio"
-                                    value={appearance}
-                                    onChange={() => updatePersonalThemePreference({ appearance })}
-                                  />
-                                  <span>{capitalizeLabel(appearance)}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        </section>
+                          <section className="settings-group" aria-labelledby="settings-hidden-instructions">
+                            <h3 id="settings-hidden-instructions">Hidden Tutor Instructions</h3>
+                            <p>Teacher-only instructions not shown to students.</p>
+                            <textarea
+                              id="behavior-instructions"
+                              name="behaviorInstructions"
+                              rows={6}
+                              defaultValue={selectedClass.behaviorInstructions ?? ""}
+                            />
+                          </section>
 
-                        <section className="settings-card" aria-labelledby="settings-teacher-invites">
-                          <h3 id="settings-teacher-invites">Teacher Invites</h3>
-                          <p>Create a one-use link for another teacher to join Chandra.</p>
-                          <div className="teacher-invite-actions">
-                            <button
-                              className="teacher-action-button"
-                              disabled={isCreatingTeacherInvite}
-                              type="button"
-                              onClick={createTeacherInviteLink}
-                            >
-                              <LinkIcon />
-                              {isCreatingTeacherInvite ? "Creating" : "Create teacher invite"}
-                            </button>
-                            <button
-                              className="teacher-action-button"
-                              disabled={!teacherInviteUrl}
-                              type="button"
-                              onClick={copyTeacherInviteLink}
-                            >
-                              <LinkIcon />
-                              {teacherInviteCopyStatus === "copied"
-                                ? "Copied"
-                                : teacherInviteCopyStatus === "failed"
-                                  ? "Copy failed"
-                                  : "Copy link"}
-                            </button>
-                          </div>
-                          {teacherInviteUrl ? (
-                            <div className="teacher-invite-url-box">
-                              <input aria-label="Teacher invite URL" readOnly value={teacherInviteUrl} />
-                              <span>
-                                Expires{" "}
-                                {teacherInviteExpiresAt
-                                  ? new Date(teacherInviteExpiresAt).toLocaleDateString("en-US", {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric"
-                                    })
-                                  : "in 30 days"}
-                              </span>
-                            </div>
-                          ) : null}
-                        </section>
+                          <section className="settings-group" aria-labelledby="settings-refusal-style">
+                            <h3 id="settings-refusal-style">Direct-answer Redirect</h3>
+                            <p>Tell Chandra how to respond when students ask for answers only.</p>
+                            <textarea
+                              id="refusal-style"
+                              name="refusalStyle"
+                              rows={5}
+                              defaultValue={selectedClass.refusalStyle ?? defaultRefusalStyle}
+                            />
+                          </section>
+                        </div>
 
-                        <section className="settings-card compact-settings-card" aria-labelledby="settings-tutor-behavior">
-                          <h3 id="settings-tutor-behavior">Tutor Behavior</h3>
-                          <p>Choose the general tutoring approach Chandra should use.</p>
-                          <div className="settings-pill-group" role="radiogroup" aria-label="Tutor behavior">
-                            {tutorBehaviorOptions.map((option) => (
-                              <label className="settings-choice-pill" key={option}>
-                                <input
-                                  defaultChecked={selectedTutorBehavior === option}
-                                  name="behaviorTitle"
-                                  type="radio"
-                                  value={option}
+                        <div className="settings-pane" hidden={activeSettingsPane !== "answerPolicy"}>
+                          <section className="settings-group" aria-labelledby="settings-answer-policy">
+                            <h3 id="settings-answer-policy">Answer Policy</h3>
+                            <p>Control how Chandra responds to student questions.</p>
+                            <div className="settings-toggle-list">
+                              {answerPolicySettings.map((setting) => (
+                                <SettingsToggle
+                                  defaultChecked={selectedAnswerPolicy[setting.id]}
+                                  key={setting.title}
+                                  name={`answerPolicy.${setting.id}`}
+                                  {...setting}
                                 />
-                                <span>{option}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </section>
+                              ))}
+                            </div>
+                          </section>
+                        </div>
 
-                        <section className="settings-card" aria-labelledby="settings-hidden-instructions">
-                          <h3 id="settings-hidden-instructions">Hidden Tutor Instructions</h3>
-                          <p>Teacher-only instructions not shown to students.</p>
-                          <textarea
-                            id="behavior-instructions"
-                            name="behaviorInstructions"
-                            rows={6}
-                            defaultValue={selectedClass.behaviorInstructions ?? ""}
-                          />
-                        </section>
+                        <div className="settings-pane" hidden={activeSettingsPane !== "model"}>
+                          <section className="settings-group" aria-labelledby="settings-model">
+                            <h3 id="settings-model">Model Settings</h3>
+                            <p>Configure the AI model and response style.</p>
+                            <label className="settings-control-label" htmlFor="class-model">
+                              Model
+                            </label>
+                            <select id="class-model" name="modelSettings.modelId" defaultValue={selectedModelSettings.modelId}>
+                              {selectableModelOptions.map((modelOption) => (
+                                <option key={modelOption.id} value={modelOption.id}>
+                                  {modelOption.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <label className="settings-control-label" htmlFor="reasoning-effort">
+                              Thinking time
+                            </label>
+                            <select
+                              id="reasoning-effort"
+                              name="modelSettings.reasoningEffort"
+                              defaultValue={selectedModelSettings.reasoningEffort}
+                            >
+                              {reasoningEffortOptions.map((effort) => (
+                                <option key={effort} value={effort}>
+                                  {capitalizeLabel(effort)}
+                                </option>
+                              ))}
+                            </select>
+
+                            <div className="settings-slider-heading">
+                              <span>Creativity</span>
+                              <strong>{displayedCreativity}%</strong>
+                            </div>
+                            <input
+                              aria-label="Creativity"
+                              className="settings-slider"
+                              name="modelSettings.creativity"
+                              type="range"
+                              min="0"
+                              max="100"
+                              defaultValue={selectedModelSettings.creativity}
+                              style={{ "--settings-slider-fill": `${displayedCreativity}%` } as CSSProperties}
+                              onChange={(event) =>
+                                setSettingsCreativityPreview({
+                                  classId: activeClassId,
+                                  value: Number(event.target.value)
+                                })
+                              }
+                            />
+
+                            <label className="settings-control-label" htmlFor="max-response-length">
+                              Max response length
+                            </label>
+                            <select
+                              id="max-response-length"
+                              name="modelSettings.responseLength"
+                              defaultValue={selectedModelSettings.responseLength}
+                            >
+                              {responseLengthOptions.map((responseLength) => (
+                                <option key={responseLength} value={responseLength}>
+                                  {capitalizeLabel(responseLength)}
+                                </option>
+                              ))}
+                            </select>
+                          </section>
+                        </div>
+
+                        <div className="settings-pane" hidden={activeSettingsPane !== "response"}>
+                          <section className="settings-group" aria-labelledby="settings-response-format">
+                            <h3 id="settings-response-format">Response Format</h3>
+                            <p>Control the structure and reading style of normal tutoring replies.</p>
+                            <div className="settings-toggle-list">
+                              {responseFormatSettings.map((setting) => (
+                                <SettingsToggle
+                                  defaultChecked={selectedResponseFormat[setting.id]}
+                                  key={setting.title}
+                                  name={`responseFormat.${setting.id}`}
+                                  {...setting}
+                                />
+                              ))}
+                            </div>
+
+                            <label className="settings-control-label" htmlFor="reading-level">
+                              Reading level
+                            </label>
+                            <select
+                              id="reading-level"
+                              name="responseFormat.readingLevel"
+                              defaultValue={selectedResponseFormat.readingLevel}
+                            >
+                              {readingLevelOptions.map((readingLevel) => (
+                                <option key={readingLevel} value={readingLevel}>
+                                  {capitalizeLabel(readingLevel)}
+                                </option>
+                              ))}
+                            </select>
+
+                            <label className="settings-control-label" htmlFor="math-notation">
+                              Math notation
+                            </label>
+                            <select
+                              id="math-notation"
+                              name="responseFormat.mathNotation"
+                              defaultValue={selectedResponseFormat.mathNotation}
+                            >
+                              {mathNotationOptions.map((notation) => (
+                                <option key={notation} value={notation}>
+                                  {formatMathNotationLabel(notation)}
+                                </option>
+                              ))}
+                            </select>
+                          </section>
+                        </div>
+
+                        <div className="settings-pane" hidden={activeSettingsPane !== "sources"}>
+                          <section className="settings-group" aria-labelledby="settings-source-usage">
+                            <h3 id="settings-source-usage">Source Usage</h3>
+                            <p>Control how Chandra uses class materials.</p>
+                            <div className="settings-toggle-list">
+                              {sourceUsageSettings.map((setting) => (
+                                <SettingsToggle
+                                  defaultChecked={selectedSourceUsage[setting.id]}
+                                  key={setting.title}
+                                  name={`sourceUsage.${setting.id}`}
+                                  {...setting}
+                                />
+                              ))}
+                            </div>
+
+                            <label className="settings-control-label" htmlFor="preferred-source-type">
+                              Preferred source type
+                            </label>
+                            <select
+                              id="preferred-source-type"
+                              name="sourceUsage.preferredSourceType"
+                              defaultValue={selectedSourceUsage.preferredSourceType}
+                            >
+                              {preferredSourceTypeOptions.map((sourceType) => (
+                                <option key={sourceType} value={sourceType}>
+                                  {sourceType}
+                                </option>
+                              ))}
+                            </select>
+                          </section>
+                        </div>
+
+                        <div className="settings-pane" hidden={activeSettingsPane !== "invites"}>
+                          <section className="settings-group" aria-labelledby="settings-teacher-invites">
+                            <h3 id="settings-teacher-invites">Teacher Invites</h3>
+                            <p>Create a one-use link for another teacher to join Chandra.</p>
+                            <div className="teacher-invite-actions">
+                              <button
+                                className="teacher-action-button"
+                                disabled={isCreatingTeacherInvite}
+                                type="button"
+                                onClick={createTeacherInviteLink}
+                              >
+                                <LinkIcon />
+                                {isCreatingTeacherInvite ? "Creating" : "Create teacher invite"}
+                              </button>
+                              <button
+                                className="teacher-action-button"
+                                disabled={!teacherInviteUrl}
+                                type="button"
+                                onClick={copyTeacherInviteLink}
+                              >
+                                <LinkIcon />
+                                {teacherInviteCopyStatus === "copied"
+                                  ? "Copied"
+                                  : teacherInviteCopyStatus === "failed"
+                                    ? "Copy failed"
+                                    : "Copy link"}
+                              </button>
+                            </div>
+                            {teacherInviteUrl ? (
+                              <div className="teacher-invite-url-box">
+                                <input aria-label="Teacher invite URL" readOnly value={teacherInviteUrl} />
+                                <span>
+                                  Expires{" "}
+                                  {teacherInviteExpiresAt
+                                    ? new Date(teacherInviteExpiresAt).toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric"
+                                      })
+                                    : "in 30 days"}
+                                </span>
+                              </div>
+                            ) : null}
+                          </section>
+                        </div>
+
+                        <div className="settings-pane" hidden={activeSettingsPane !== "appearance"}>
+                          <section className="settings-group" aria-labelledby="settings-appearance">
+                            <h3 id="settings-appearance">Appearance</h3>
+                            <p>These display preferences are personal to your teacher account.</p>
+                            <div className="settings-theme-control" aria-label="Personal theme color" role="radiogroup">
+                              <span className="settings-control-label">Personal theme color</span>
+                              <div className="settings-theme-swatches">
+                                {teacherClassThemeColorOptions.map((option) => (
+                                  <label className="settings-theme-swatch" key={option.id}>
+                                    <input
+                                      checked={selectedThemeColor === option.id}
+                                      disabled={isSavingThemePreference}
+                                      name="personalThemeColor"
+                                      type="radio"
+                                      value={option.id}
+                                      onChange={() => updatePersonalThemePreference({ themeColor: option.id })}
+                                    />
+                                    <span>
+                                      <span
+                                        className="settings-theme-swatch-dot"
+                                        style={{ backgroundColor: option.color }}
+                                        aria-hidden="true"
+                                      />
+                                      {option.label}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="settings-appearance-control" aria-label="Personal appearance" role="radiogroup">
+                              <span className="settings-control-label">Personal appearance</span>
+                              <div className="settings-appearance-pills">
+                                {classAppearanceOptions.map((appearance) => (
+                                  <label className="settings-choice-pill" key={appearance}>
+                                    <input
+                                      checked={selectedAppearance === appearance}
+                                      disabled={isSavingThemePreference}
+                                      name="personalAppearance"
+                                      type="radio"
+                                      value={appearance}
+                                      onChange={() => updatePersonalThemePreference({ appearance })}
+                                    />
+                                    <span>{capitalizeLabel(appearance)}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          </section>
+                        </div>
                       </div>
-
-                      <div className="settings-column">
-                        <section className="settings-card" aria-labelledby="settings-answer-policy">
-                          <h3 id="settings-answer-policy">Answer Policy</h3>
-                          <p>Control how Chandra responds to student questions.</p>
-                          <div className="settings-toggle-list">
-                            {answerPolicySettings.map((setting) => (
-                              <SettingsToggle
-                                defaultChecked={selectedAnswerPolicy[setting.id]}
-                                key={setting.title}
-                                name={`answerPolicy.${setting.id}`}
-                                {...setting}
-                              />
-                            ))}
-                          </div>
-                        </section>
-
-                        <section className="settings-card" aria-labelledby="settings-refusal-style">
-                          <h3 id="settings-refusal-style">Direct-answer Redirect</h3>
-                          <p>Tell Chandra how to respond when students ask for answers only.</p>
-                          <textarea
-                            id="refusal-style"
-                            name="refusalStyle"
-                            rows={5}
-                            defaultValue={selectedClass.refusalStyle ?? defaultRefusalStyle}
-                          />
-                        </section>
-
-                        <section className="settings-card" aria-labelledby="settings-model">
-                          <h3 id="settings-model">Model Settings</h3>
-                          <p>Configure the AI model and response style.</p>
-                          <label className="settings-control-label" htmlFor="class-model">
-                            Model
-                          </label>
-                          <select id="class-model" name="modelSettings.modelId" defaultValue={selectedModelSettings.modelId}>
-                            {selectableModelOptions.map((modelOption) => (
-                              <option key={modelOption.id} value={modelOption.id}>
-                                {modelOption.label}
-                              </option>
-                            ))}
-                          </select>
-
-                          <label className="settings-control-label" htmlFor="reasoning-effort">
-                            Thinking time
-                          </label>
-                          <select
-                            id="reasoning-effort"
-                            name="modelSettings.reasoningEffort"
-                            defaultValue={selectedModelSettings.reasoningEffort}
-                          >
-                            {reasoningEffortOptions.map((effort) => (
-                              <option key={effort} value={effort}>
-                                {capitalizeLabel(effort)}
-                              </option>
-                            ))}
-                          </select>
-
-                          <div className="settings-slider-heading">
-                            <span>Creativity</span>
-                            <strong>{displayedCreativity}%</strong>
-                          </div>
-                          <input
-                            aria-label="Creativity"
-                            className="settings-slider"
-                            name="modelSettings.creativity"
-                            type="range"
-                            min="0"
-                            max="100"
-                            defaultValue={selectedModelSettings.creativity}
-                            onChange={(event) =>
-                              setSettingsCreativityPreview({
-                                classId: activeClassId,
-                                value: Number(event.target.value)
-                              })
-                            }
-                          />
-
-                          <label className="settings-control-label" htmlFor="max-response-length">
-                            Max response length
-                          </label>
-                          <select
-                            id="max-response-length"
-                            name="modelSettings.responseLength"
-                            defaultValue={selectedModelSettings.responseLength}
-                          >
-                            {responseLengthOptions.map((responseLength) => (
-                              <option key={responseLength} value={responseLength}>
-                                {capitalizeLabel(responseLength)}
-                              </option>
-                            ))}
-                          </select>
-                        </section>
-                      </div>
-
-                      <div className="settings-column">
-                        <section className="settings-card" aria-labelledby="settings-response-format">
-                          <h3 id="settings-response-format">Response Format</h3>
-                          <p>Control the structure and reading style of normal tutoring replies.</p>
-                          <div className="settings-toggle-list">
-                            {responseFormatSettings.map((setting) => (
-                              <SettingsToggle
-                                defaultChecked={selectedResponseFormat[setting.id]}
-                                key={setting.title}
-                                name={`responseFormat.${setting.id}`}
-                                {...setting}
-                              />
-                            ))}
-                          </div>
-
-                          <label className="settings-control-label" htmlFor="reading-level">
-                            Reading level
-                          </label>
-                          <select
-                            id="reading-level"
-                            name="responseFormat.readingLevel"
-                            defaultValue={selectedResponseFormat.readingLevel}
-                          >
-                            {readingLevelOptions.map((readingLevel) => (
-                              <option key={readingLevel} value={readingLevel}>
-                                {capitalizeLabel(readingLevel)}
-                              </option>
-                            ))}
-                          </select>
-
-                          <label className="settings-control-label" htmlFor="math-notation">
-                            Math notation
-                          </label>
-                          <select
-                            id="math-notation"
-                            name="responseFormat.mathNotation"
-                            defaultValue={selectedResponseFormat.mathNotation}
-                          >
-                            {mathNotationOptions.map((notation) => (
-                              <option key={notation} value={notation}>
-                                {formatMathNotationLabel(notation)}
-                              </option>
-                            ))}
-                          </select>
-                        </section>
-
-                        <section className="settings-card" aria-labelledby="settings-source-usage">
-                          <h3 id="settings-source-usage">Source Usage</h3>
-                          <p>Control how Chandra uses class materials.</p>
-                          <div className="settings-toggle-list">
-                            {sourceUsageSettings.map((setting) => (
-                              <SettingsToggle
-                                defaultChecked={selectedSourceUsage[setting.id]}
-                                key={setting.title}
-                                name={`sourceUsage.${setting.id}`}
-                                {...setting}
-                              />
-                            ))}
-                          </div>
-
-                          <label className="settings-control-label" htmlFor="preferred-source-type">
-                            Preferred source type
-                          </label>
-                          <select
-                            id="preferred-source-type"
-                            name="sourceUsage.preferredSourceType"
-                            defaultValue={selectedSourceUsage.preferredSourceType}
-                          >
-                            {preferredSourceTypeOptions.map((sourceType) => (
-                              <option key={sourceType} value={sourceType}>
-                                {sourceType}
-                              </option>
-                            ))}
-                          </select>
-                        </section>
-                      </div>
-                    </div>
+                    </section>
                   </form>
                 ) : null}
 
@@ -3326,25 +3547,15 @@ export function TeacherClassManager() {
                           </div>
                           <div className="message-list professor-message-list">
                             {activeSelectedConversationId && conversationMessages.length ? (
-                              conversationMessages.map((message) => (
-                                <article className={`message ${message.role}`} key={message.id}>
-                                  <div className="message-meta">
-                                    {message.role === "student" ? selectedStudent.displayName : "Chandra"}
-                                  </div>
-                                  <p>{message.content}</p>
-                                  {message.role === "assistant" && message.sources?.length ? (
-                                    <div className="message-sources" aria-label="Sources used">
-                                      {message.sources.map((source, index) => (
-                                        <span
-                                          key={`${source.title}-${source.pageNumber ?? ""}-${source.problemNumber ?? ""}-${index}`}
-                                        >
-                                          {formatSourceLabel(source)}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  ) : null}
-                                </article>
-                              ))
+                              conversationMessages
+                                .filter((message) => message.role === "student" || message.role === "assistant")
+                                .map((message) => (
+                                  <TeacherTranscriptMessage
+                                    key={message.id}
+                                    message={message}
+                                    studentName={selectedStudent.displayName}
+                                  />
+                                ))
                             ) : (
                               <div className="empty-state professor-chat-empty">
                                 <strong>No transcript yet</strong>
@@ -4185,39 +4396,13 @@ export function TeacherClassManager() {
 
                         <div className="transcript-message-list" aria-label="Conversation transcript">
                           {transcriptMessages.length ? (
-                            transcriptMessages.map((message) => {
-                              const isStudentMessage = message.role === "student";
-
-                              return (
-                                <article
-                                  className={`review-message ${isStudentMessage ? "student" : "assistant"}`}
-                                  key={message.id}
-                                >
-                                  {!isStudentMessage ? (
-                                    <span className="review-message-avatar" aria-hidden="true">
-                                      C
-                                    </span>
-                                  ) : null}
-                                  <div className="review-message-stack">
-                                    <div className="review-message-bubble">
-                                      <p>{message.content}</p>
-                                      {!isStudentMessage && message.sources?.length ? (
-                                        <div className="review-source-pills" aria-label="Sources used">
-                                          {message.sources.map((source, index) => (
-                                            <span
-                                              key={`${source.title}-${source.pageNumber ?? ""}-${source.problemNumber ?? ""}-${index}`}
-                                            >
-                                              {formatSourceLabel(source)}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                    <time>{formatConversationDate(message.createdAt)}</time>
-                                  </div>
-                                </article>
-                              );
-                            })
+                            transcriptMessages.map((message) => (
+                              <TeacherTranscriptMessage
+                                key={message.id}
+                                message={message}
+                                studentName={selectedConversationReviewRow?.studentName ?? "Student"}
+                              />
+                            ))
                           ) : (
                             <div className="empty-state transcript-empty-state">
                               <strong>No transcript loaded</strong>
@@ -4762,6 +4947,19 @@ export function TeacherClassManager() {
                 onChange={(event) => handleMaterialFileChange(event.target.files?.[0] ?? null)}
               />
               <p className="field-hint">PDF, TXT, MD, or CSV only.</p>
+
+              <label className="field-label" htmlFor="material-source-url">
+                Paste URL
+              </label>
+              <input
+                id="material-source-url"
+                inputMode="url"
+                placeholder="https://example.edu/reading.pdf"
+                type="url"
+                value={materialSourceUrl}
+                onChange={(event) => handleMaterialSourceUrlChange(event.target.value)}
+              />
+              <p className="field-hint">Public PDF, HTML, TXT, MD, or CSV URLs only.</p>
 
               <label className="field-label" htmlFor="material-text">
                 Paste tutor knowledge text
@@ -5617,6 +5815,61 @@ function normalizeProfileComparisonText(value: string) {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function TeacherTranscriptMessage({ message, studentName }: { message: ChatMessage; studentName: string }) {
+  const isStudentMessage = message.role === "student";
+
+  if (isStudentMessage) {
+    return (
+      <article className="student-workspace-message teacher-transcript-message student">
+        <div className="student-message-stack teacher-transcript-stack">
+          <div className="message-meta">{studentName || "Student"}</div>
+          <div className="student-message-bubble teacher-transcript-bubble">
+            <ReactMarkdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={markdownRehypePlugins}>
+              {normalizeMarkdownMath(message.content)}
+            </ReactMarkdown>
+          </div>
+          <time className="teacher-transcript-time">{formatConversationDate(message.createdAt)}</time>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <article className="student-workspace-message teacher-transcript-message assistant">
+      <span className="chandra-message-avatar teacher-transcript-avatar" aria-hidden="true">
+        C
+      </span>
+      <div className="assistant-message-stack teacher-transcript-stack">
+        <div className="message-meta">Chandra</div>
+        {assistantMessageAnswerContent(message) ? (
+          <div className="assistant-message-bubble teacher-transcript-bubble">
+            <ReactMarkdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={markdownRehypePlugins}>
+              {normalizeMarkdownMath(assistantMessageAnswerContent(message))}
+            </ReactMarkdown>
+          </div>
+        ) : null}
+        {assistantStructuredSections(message).map((section) => (
+          <div className={`assistant-structured-section ${section.kind}`} key={section.kind}>
+            <strong>{section.label}</strong>
+            <ReactMarkdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={markdownRehypePlugins}>
+              {normalizeMarkdownMath(normalizeStructuredSectionMarkdown(section.content, section.kind))}
+            </ReactMarkdown>
+          </div>
+        ))}
+        {message.sources?.length ? (
+          <div className="message-sources teacher-transcript-sources" aria-label="Sources used">
+            <strong>Sources:</strong>
+            {condensedSourceLabels(message.sources).map((label, index) => (
+              <span key={`${label}-${index}`}>{label}</span>
+            ))}
+          </div>
+        ) : null}
+        <time className="teacher-transcript-time">{formatConversationDate(message.createdAt)}</time>
+      </div>
+    </article>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
@@ -6083,60 +6336,114 @@ function filterConversationReviewRows({
   const normalizedQuery = query.trim().toLowerCase();
   const evidenceConversationIdSet = new Set(evidenceConversationIds);
 
-  return rows.filter((row) => {
-    if (evidenceConversationIdSet.size && !evidenceConversationIdSet.has(row.id)) {
-      return false;
-    }
+  return rows.filter((row) =>
+    conversationMatchesFilter({
+      evidenceConversationIdSet,
+      filter,
+      normalizedQuery,
+      row,
+      studentEmail,
+      topic
+    })
+  );
+}
 
-    if (studentEmail !== "all" && row.studentEmail !== studentEmail) {
-      return false;
-    }
+function conversationMatchesFilter({
+  evidenceConversationIds,
+  evidenceConversationIdSet,
+  filter,
+  normalizedQuery,
+  query,
+  row,
+  studentEmail,
+  topic
+}: {
+  evidenceConversationIds?: string[];
+  evidenceConversationIdSet?: Set<string>;
+  filter: ConversationFilter;
+  normalizedQuery?: string;
+  query?: string;
+  row: ConversationReviewRow;
+  studentEmail: string;
+  topic: string;
+}) {
+  const evidenceIds = evidenceConversationIdSet ?? new Set(evidenceConversationIds ?? []);
+  const normalizedSearchQuery = normalizedQuery ?? query?.trim().toLowerCase() ?? "";
 
-    if (topic !== "all" && row.topic !== topic) {
-      return false;
-    }
+  if (evidenceIds.size && !evidenceIds.has(row.id)) {
+    return false;
+  }
 
-    if (
-      normalizedQuery &&
-      ![row.studentName, row.title, row.topic, formatConversationStatus(row.status)].some((value) =>
-        value.toLowerCase().includes(normalizedQuery)
-      )
-    ) {
-      return false;
-    }
+  if (studentEmail !== "all" && row.studentEmail !== studentEmail) {
+    return false;
+  }
 
-    if (filter === "unreviewed" || filter === "noTeacherReview") {
-      return row.status === "new";
-    }
+  if (topic !== "all" && row.topic !== topic) {
+    return false;
+  }
 
-    if (filter === "activeToday") {
-      return isToday(row.lastMessageAt);
-    }
+  if (
+    normalizedSearchQuery &&
+    ![row.studentName, row.title, row.topic, formatConversationStatus(row.status)].some((value) =>
+      value.toLowerCase().includes(normalizedSearchQuery)
+    )
+  ) {
+    return false;
+  }
 
-    if (filter === "highMessageCount") {
-      return row.messageCount >= 8;
-    }
+  if (filter === "reviewed") {
+    return conversationIsReviewed(row);
+  }
 
-    if (filter === "offTopic") {
-      return row.topic.toLowerCase().includes("off-topic");
-    }
+  if (!conversationNeedsTeacherReview(row)) {
+    return false;
+  }
 
-    if (filter === "lowConfidence") {
-      return row.sourceAudit.lowSourceConfidence;
-    }
+  if (filter === "unreviewed" || filter === "noTeacherReview") {
+    return row.status === "new";
+  }
 
-    return true;
-  });
+  if (filter === "activeToday") {
+    return isToday(row.lastMessageAt);
+  }
+
+  if (filter === "highMessageCount") {
+    return row.messageCount >= 8;
+  }
+
+  if (filter === "offTopic") {
+    return row.topic.toLowerCase().includes("off-topic");
+  }
+
+  if (filter === "lowConfidence") {
+    return row.sourceAudit.lowSourceConfidence;
+  }
+
+  return true;
+}
+
+function conversationNeedsTeacherReview(row: Pick<ConversationReviewRow, "status">) {
+  return (
+    row.status === "new" ||
+    row.status === "needs_follow_up" ||
+    row.status === "misunderstanding_spotted" ||
+    row.status === "ai_answer_needs_review"
+  );
+}
+
+function conversationIsReviewed(row: Pick<ConversationReviewRow, "status">) {
+  return row.status === "reviewed" || row.status === "good_learning_moment";
 }
 
 function buildConversationMetrics(rows: ConversationReviewRow[], rosterRows: RosterRow[]) {
   const total = rows.length || rosterRows.reduce((sum, row) => sum + row.conversationsCount, 0);
+  const openRows = rows.filter(conversationNeedsTeacherReview);
 
   return {
-    followUp: rows.filter((row) => row.status === "needs_follow_up").length,
-    lowConfidence: rows.filter((row) => row.sourceAudit.lowSourceConfidence).length,
+    followUp: openRows.filter((row) => row.status === "needs_follow_up" || row.status === "misunderstanding_spotted").length,
+    lowConfidence: openRows.filter((row) => row.sourceAudit.lowSourceConfidence).length,
     total,
-    unreviewed: rows.filter((row) => row.status === "new").length
+    unreviewed: openRows.filter((row) => row.status === "new").length
   };
 }
 
@@ -6677,7 +6984,121 @@ function formatSourceLabel(source: NonNullable<ChatMessage["sources"]>[number]) 
     source.title,
     source.problemNumber ? `problem ${source.problemNumber}` : "",
     source.pageNumber ? `p. ${source.pageNumber}` : ""
-  ].filter(Boolean).join(" / ");
+  ].filter(Boolean).join(" · ");
+}
+
+function condensedSourceLabels(sources: NonNullable<ChatMessage["sources"]>) {
+  const groupedSources = new Map<string, { pages: Set<number>; source: NonNullable<ChatMessage["sources"]>[number] }>();
+
+  for (const source of sources) {
+    const key = [source.title, source.materialType, source.problemNumber ?? ""].join("|");
+    const existing = groupedSources.get(key) ?? { pages: new Set<number>(), source };
+
+    if (source.pageNumber) {
+      existing.pages.add(source.pageNumber);
+    }
+
+    groupedSources.set(key, existing);
+  }
+
+  const labels = Array.from(groupedSources.values()).map(
+    ({ pages, source }) => formatSourceLabel({ ...source, pageNumber: undefined }) + formatPageRange(Array.from(pages))
+  );
+  const visibleLabels = labels.slice(0, 3);
+
+  return labels.length > visibleLabels.length ? [...visibleLabels, `+${labels.length - visibleLabels.length} more`] : visibleLabels;
+}
+
+function formatPageRange(pages: number[]) {
+  const sortedPages = [...new Set(pages)].sort((first, second) => first - second);
+
+  if (!sortedPages.length) {
+    return "";
+  }
+
+  const ranges: string[] = [];
+  let rangeStart = sortedPages[0];
+  let previousPage = sortedPages[0];
+
+  for (const page of sortedPages.slice(1)) {
+    if (page === previousPage + 1) {
+      previousPage = page;
+      continue;
+    }
+
+    ranges.push(rangeStart === previousPage ? `${rangeStart}` : `${rangeStart}-${previousPage}`);
+    rangeStart = page;
+    previousPage = page;
+  }
+
+  ranges.push(rangeStart === previousPage ? `${rangeStart}` : `${rangeStart}-${previousPage}`);
+
+  return ` · ${ranges.length === 1 && !ranges[0].includes("-") ? "p." : "pp."} ${ranges.join(", ")}`;
+}
+
+function assistantMessageAnswerContent(message: ChatMessage) {
+  return message.structuredOutput ? message.structuredOutput.sections.answer : message.content;
+}
+
+function assistantStructuredSections(message: ChatMessage) {
+  const sections = message.structuredOutput?.sections;
+
+  if (!sections) {
+    return [];
+  }
+
+  return [
+    { content: sections.hint, kind: "hint", label: "Hint" },
+    { content: sections.explanation, kind: "explanation", label: "Why this works" },
+    { content: sections.formula, kind: "formula", label: "Formula" },
+    { content: sections.example, kind: "example", label: "Example" },
+    { content: sections.checkWork, kind: "check-work", label: "Check your work" },
+    {
+      content: message.sources?.length || isGenericSourceNote(sections.sourceNote) ? undefined : sections.sourceNote,
+      kind: "source-note",
+      label: "Source"
+    },
+    { content: sections.nextStep, kind: "next-step", label: "Your next step" }
+  ].filter((section): section is { content: string; kind: string; label: string } => Boolean(section.content));
+}
+
+function isGenericSourceNote(note: string | undefined) {
+  return !note || /^based on the selected class material\.?$/i.test(note.trim());
+}
+
+function normalizeStructuredSectionMarkdown(content: string, kind: string) {
+  const cleaned = content
+    .trim()
+    .replace(/^\*\*\s*/, "")
+    .replace(/\s*\*\*$/, "");
+
+  if (kind !== "formula") {
+    return cleaned;
+  }
+
+  if (/^\$\$[\s\S]*\$\$$/.test(cleaned) || /^\\\[/.test(cleaned)) {
+    return cleaned;
+  }
+
+  const formulas = cleaned
+    .split(/\s*,\s*(?=(?:P|E|M|A|\\mu|μ|\$?\\?mu)\b)/)
+    .map((formula) => formula.trim())
+    .filter(Boolean);
+
+  if (formulas.length <= 1) {
+    return `$$\n${cleaned.replace(/^\$|\$$/g, "")}\n$$`;
+  }
+
+  return formulas.map((formula) => `$$\n${formula.replace(/^\$|\$$/g, "")}\n$$`).join("\n\n");
+}
+
+function normalizeMarkdownMath(content: string) {
+  return content
+    .replace(/\\\[/g, "$$")
+    .replace(/\\\]/g, "$$")
+    .replace(/\\\(/g, "$")
+    .replace(/\\\)/g, "$")
+    .replace(/^\[\s*(\\(?:int|frac|sqrt|sum|lim|prod)[\s\S]*?)\s*\]$/gm, "$$$$\n$1\n$$$$");
 }
 
 function formatClassError(caughtError: unknown, fallback: string) {
@@ -6873,6 +7294,86 @@ function parseJsonResponse(responseText: string) {
   } catch {
     return {};
   }
+}
+
+function uploadTutorKnowledgeFileToStorage({
+  classId,
+  file,
+  materialId,
+  onProgress
+}: {
+  classId: string;
+  file: File;
+  materialId: string;
+  onProgress: (progress: MaterialUploadProgress | null) => void;
+}) {
+  if (!storage) {
+    throw new Error("Firebase Storage is not configured for direct tutor knowledge upload.");
+  }
+
+  validateTutorKnowledgeFile(file);
+  const safeFileName = sanitizeStorageFileName(file.name);
+  const storagePath = `classes/${classId}/materials/${materialId}/original/${safeFileName}`;
+  const uploadTask = uploadBytesResumable(storageRef(storage, storagePath), file, {
+    contentType: file.type || contentTypeFromFileName(file.name)
+  });
+
+  onProgress({
+    detail: "Uploading the original file directly to Firebase Storage.",
+    percent: 2,
+    step: "upload",
+    uploadPercent: 0
+  });
+
+  return new Promise<{ storagePath: string }>((resolve, reject) => {
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const uploadPercent = Math.round((snapshot.bytesTransferred / Math.max(snapshot.totalBytes, 1)) * 100);
+
+        onProgress({
+          detail: `Uploading source: ${formatBytes(snapshot.bytesTransferred)} of ${formatBytes(snapshot.totalBytes)} sent.`,
+          percent: Math.min(12, 2 + Math.round(uploadPercent * 0.1)),
+          step: "upload",
+          uploadPercent
+        });
+      },
+      (caughtError) => {
+        reject(new Error(caughtError instanceof Error ? caughtError.message : "Firebase Storage upload failed."));
+      },
+      () => {
+        onProgress({
+          detail: "Upload complete. Waiting for Chandra to process the stored source.",
+          percent: 12,
+          step: "upload",
+          uploadPercent: 100
+        });
+        resolve({ storagePath });
+      }
+    );
+  });
+}
+
+function sanitizeStorageFileName(fileName: string) {
+  return fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || "tutor-knowledge-file";
+}
+
+function contentTypeFromFileName(fileName: string) {
+  const extension = fileName.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+
+  if (extension === ".pdf") {
+    return "application/pdf";
+  }
+
+  if (extension === ".md") {
+    return "text/markdown";
+  }
+
+  if (extension === ".csv") {
+    return "text/csv";
+  }
+
+  return "text/plain";
 }
 
 function readResponseError(data: unknown) {

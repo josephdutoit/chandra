@@ -74,6 +74,8 @@ Required backend environment variables:
 CHANDRA_ENV=production
 BACKEND_SHARED_SECRET=<same-random-secret-as-frontend>
 BACKEND_CORS_ORIGINS=https://<frontend-domain>
+FRONTEND_ORIGIN=https://<frontend-domain>
+NEXT_INTERNAL_BASE_URL=https://<frontend-domain>
 
 FIREBASE_PROJECT_ID=
 FIREBASE_STORAGE_BUCKET=
@@ -94,6 +96,8 @@ VERTEX_EMBEDDING_DIMENSIONS=768
 ```
 
 `BACKEND_SHARED_SECRET` is required. The backend returns `503` for internal LangGraph chat requests if it is missing and `403` if the request secret does not match.
+
+`NEXT_INTERNAL_BASE_URL` or `FRONTEND_ORIGIN` is also required on the backend in production. FastAPI uses it to call the Next.js internal retrieval endpoints for PDF page search and selected-page PDF assets. If it is missing, class-material retrieval can return no pages even when Firestore has indexed chunks.
 
 ## Preflight Checks
 

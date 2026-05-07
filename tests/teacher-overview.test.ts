@@ -25,6 +25,7 @@ test("teacher overview aggregates existing roster, conversations, knowledge, and
   assert.match(serverSource, /collection\("studentLearningProfiles"\)/);
   assert.match(serverSource, /const priorityRows = buildPriorityRows/);
   assert.match(serverSource, /const reviewQueueRows = buildReviewQueueRows/);
+  assert.match(serverSource, /filter\(conversationNeedsTeacherReview\)/);
   assert.match(serverSource, /nextActions: buildNextActions/);
   assert.match(serverSource, /getOverviewInsightSummary/);
   assert.match(serverSource, /collection\("teacherInsights"\)\.doc\("today"\)/);
@@ -32,6 +33,21 @@ test("teacher overview aggregates existing roster, conversations, knowledge, and
   assert.match(serverSource, /Check high-volume student/);
   assert.match(serverSource, /Review flagged chat/);
   assert.match(serverSource, /sort\(\(first, second\) => second\.score - first\.score/);
+});
+
+test("teacher overview review queue excludes reviewed conversations even when source flags remain", () => {
+  const serverSource = source();
+  const buildReviewQueueRowsStart = serverSource.indexOf("function buildReviewQueueRows");
+  const buildReviewQueueRowsEnd = serverSource.indexOf("async function buildLearningProfileRows");
+  const buildReviewQueueRowsSource = serverSource.slice(buildReviewQueueRowsStart, buildReviewQueueRowsEnd);
+
+  assert.match(buildReviewQueueRowsSource, /filter\(conversationNeedsTeacherReview\)/);
+  assert.match(buildReviewQueueRowsSource, /conversation\.reviewStatus === "new"/);
+  assert.match(buildReviewQueueRowsSource, /conversation\.reviewStatus === "needs_follow_up"/);
+  assert.match(buildReviewQueueRowsSource, /conversation\.reviewStatus === "misunderstanding_spotted"/);
+  assert.match(buildReviewQueueRowsSource, /conversation\.reviewStatus === "ai_answer_needs_review"/);
+  assert.doesNotMatch(buildReviewQueueRowsSource, /conversation\.sourceAudit\.lowSourceConfidence \|\|/);
+  assert.doesNotMatch(buildReviewQueueRowsSource, /conversation\.topic\.toLowerCase\(\)\.includes\("off-topic"\)\s*\)/);
 });
 
 test("teacher overview uses timezone-aware day keys", () => {

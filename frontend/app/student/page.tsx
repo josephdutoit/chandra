@@ -17,6 +17,7 @@ import {
   normalizeTeacherClassThemeColor,
   teacherClassThemeColorOptions
 } from "@/lib/class-theme";
+import { normalizeOpeningMessage, normalizeStudentFacingInstructions } from "@/lib/class-settings";
 import { subscribeToClass, type TeacherClass } from "@/lib/classes";
 import type { ChatMessage, StudentConversationSummary, TutorApiResponse } from "@/lib/types";
 
@@ -50,15 +51,7 @@ const studentAppearanceOptions = ["light", "dark"] as const;
 const markdownRemarkPlugins = [remarkMath];
 const markdownRehypePlugins = [rehypeKatex];
 
-const initialMessages: ChatMessage[] = [
-  {
-    id: "welcome",
-    role: "assistant",
-    content:
-      "Hi. I can help you work through the assignment step by step. What problem are you on?",
-    createdAt: new Date().toISOString()
-  }
-];
+const welcomeMessageId = "welcome";
 
 export default function StudentPage() {
   return (
@@ -80,7 +73,7 @@ function StudentWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { firebaseReady, profile, user } = useAuth();
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => buildInitialStudentMessages(null));
   const [draft, setDraft] = useState("");
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -116,6 +109,9 @@ function StudentWorkspace() {
       (nextClass) => {
         setSavedClass(nextClass);
         setLoadedClassId(activeCourseId);
+        setMessages((currentMessages) =>
+          isOnlyWelcomeMessage(currentMessages) ? buildInitialStudentMessages(nextClass) : currentMessages
+        );
       },
       (caughtError) => {
         setSavedClass(null);
@@ -170,7 +166,7 @@ function StudentWorkspace() {
   const classSection = activeClass?.section ?? (activeCourseId ? "Student chat" : "Enter your class code");
   const classSectionLabel = formatClassSectionLabel(classSection, Boolean(activeCourseId));
   const visibleClassCode = activeClass?.joinCode || activeClass?.id || activeCourseId;
-  const pinnedTeacherInstructions = activeClass ? formatPinnedTeacherInstructions(activeClass.defaultAssignmentContext) : "";
+  const pinnedTeacherInstructions = activeClass ? formatPinnedTeacherInstructions(activeClass) : "";
   const visibleConversationSummaries = conversationSummaries.filter(
     (conversation) => conversation.classId === activeCourseId && conversation.studentId === user?.uid
   );
@@ -204,7 +200,7 @@ function StudentWorkspace() {
       )
       .then((savedMessages) => {
         if (!isCancelled) {
-          setMessages(savedMessages.length ? savedMessages : initialMessages);
+          setMessages(savedMessages.length ? savedMessages : buildInitialStudentMessages(activeClass));
           setConversationMessagesError("");
         }
       })
@@ -217,7 +213,7 @@ function StudentWorkspace() {
     return () => {
       isCancelled = true;
     };
-  }, [activeCourseId, activeSelectedConversationId, firebaseReady, user]);
+  }, [activeClass, activeCourseId, activeSelectedConversationId, firebaseReady, user]);
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -372,7 +368,7 @@ function StudentWorkspace() {
   function startNewConversation() {
     setSelectedConversationId("");
     setSelectedConversationClassId(activeCourseId);
-    setMessages(initialMessages);
+    setMessages(buildInitialStudentMessages(activeClass));
     setConversationMessagesError("");
   }
 
@@ -533,9 +529,9 @@ function StudentWorkspace() {
           </header>
 
           {pinnedTeacherInstructions ? (
-            <section className="student-teacher-instructions" aria-label="Teacher instructions">
+            <section className="student-teacher-instructions" aria-label="Class instructions">
               <div>
-                <strong className="student-instructions-heading">Teacher instructions</strong>
+                <strong className="student-instructions-heading">Class instructions</strong>
                 <p>{pinnedTeacherInstructions}</p>
               </div>
             </section>
@@ -960,10 +956,28 @@ function formatClassSectionLabel(classSection: string, hasClass: boolean) {
   return `Section ${classSection}`;
 }
 
-function formatPinnedTeacherInstructions(defaultAssignmentContext?: string) {
-  const customInstructions = defaultAssignmentContext?.replace(/\s+/g, " ").trim();
+function buildInitialStudentMessages(teacherClass: TeacherClass | null): ChatMessage[] {
+  return [
+    {
+      id: welcomeMessageId,
+      role: "assistant",
+      content: normalizeOpeningMessage(teacherClass?.openingMessage, teacherClass ?? undefined),
+      createdAt: new Date().toISOString()
+    }
+  ];
+}
 
-  return customInstructions || "Show your work. Do not use decimals unless asked.";
+function isOnlyWelcomeMessage(messages: ChatMessage[]) {
+  return messages.length === 1 && messages[0]?.id === welcomeMessageId && messages[0]?.role === "assistant";
+}
+
+function formatPinnedTeacherInstructions(teacherClass: TeacherClass) {
+  const customInstructions = normalizeStudentFacingInstructions(
+    teacherClass.studentFacingInstructions,
+    teacherClass
+  );
+
+  return customInstructions;
 }
 
 function getInitials(name: string, email: string) {

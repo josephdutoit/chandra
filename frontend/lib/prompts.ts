@@ -3,8 +3,10 @@ import {
   defaultRefusalStyle,
   normalizeAnswerPolicySettings,
   normalizeClassModelSettings,
+  normalizeOpeningMessage,
   normalizeResponseFormatSettings,
   normalizeSourceUsageSettings,
+  normalizeStudentFacingInstructions,
   normalizeTutorBehavior,
   type AnswerPolicySettings,
   type ClassModelSettings,
@@ -23,10 +25,12 @@ export type TeacherClassTutorConfig = {
   defaultAssignmentContext?: string;
   modelSettings: ClassModelSettings;
   name: string;
+  openingMessage: string;
   refusalStyle: string;
   responseFormat: ResponseFormatSettings;
   section: string;
   sourceUsage: SourceUsageSettings;
+  studentFacingInstructions: string;
 };
 
 export async function buildTutorSystemPrompt({
@@ -81,6 +85,7 @@ export async function buildTutorSystemPrompt({
         answerPolicy: teacherClass?.answerPolicy ?? normalizeAnswerPolicySettings(null),
         defaultAssignmentContext: teacherClass?.defaultAssignmentContext,
         modelSettings: teacherClass?.modelSettings ?? normalizeClassModelSettings(null),
+        openingMessage: teacherClass?.openingMessage ?? normalizeOpeningMessage(null, { name: className, section: classSection }),
         policyTitle: teacherClass?.behaviorTitle ?? "Guided problem solving",
         instructions,
         refusalStyle:
@@ -88,6 +93,9 @@ export async function buildTutorSystemPrompt({
           defaultRefusalStyle,
         responseFormat: teacherClass?.responseFormat ?? normalizeResponseFormatSettings(null),
         sourceUsage: teacherClass?.sourceUsage ?? normalizeSourceUsageSettings(null),
+        studentFacingInstructions:
+          teacherClass?.studentFacingInstructions ??
+          normalizeStudentFacingInstructions(null, { name: className, section: classSection }),
         studentLearningProfileDigest,
         retrievalInstruction
       }),
@@ -124,11 +132,13 @@ function buildCoreTutorInstructions({
   defaultAssignmentContext,
   instructions,
   modelSettings,
+  openingMessage,
   policyTitle,
   refusalStyle,
   responseFormat,
   retrievalGuidance,
   retrievalInstruction,
+  studentFacingInstructions,
   studentLearningProfileDigest,
   sourceUsage
 }: {
@@ -136,12 +146,14 @@ function buildCoreTutorInstructions({
   defaultAssignmentContext?: string;
   instructions: string[];
   modelSettings: ClassModelSettings;
+  openingMessage?: string;
   policyTitle: string;
   refusalStyle: string;
   responseFormat: ResponseFormatSettings;
   retrievalGuidance?: string;
   retrievalInstruction: string;
   sourceUsage: SourceUsageSettings;
+  studentFacingInstructions?: string;
   studentLearningProfileDigest?: string;
 }) {
   return [
@@ -150,6 +162,8 @@ function buildCoreTutorInstructions({
     `Teacher policy: ${policyTitle}`,
     ...buildTutorBehaviorInstructions(policyTitle),
     ...instructions.map((instruction) => `- ${instruction}`),
+    ...(studentFacingInstructions ? [`Student-facing class instructions: ${studentFacingInstructions}`] : []),
+    ...(openingMessage ? [`Default student opening message: ${openingMessage}`] : []),
     ...(defaultAssignmentContext ? [`Default assignment context: ${defaultAssignmentContext}`] : []),
     `Refusal and redirection style: ${refusalStyle}`,
     ...(retrievalGuidance ? [`Retrieval guidance: ${retrievalGuidance}`] : []),
@@ -416,17 +430,22 @@ export async function getTeacherClassTutorConfig(courseId: string): Promise<Teac
       return null;
     }
 
+    const name = String(data.name ?? "Class");
+    const section = String(data.section ?? "Workspace");
+
     return {
       answerPolicy: normalizeAnswerPolicySettings(data.answerPolicy),
       behaviorInstructions: data.behaviorInstructions as string | undefined,
       behaviorTitle: normalizeTutorBehavior(data.behaviorTitle),
       defaultAssignmentContext: data.defaultAssignmentContext as string | undefined,
       modelSettings: normalizeClassModelSettings(data.modelSettings),
-      name: String(data.name ?? "Class"),
+      name,
+      openingMessage: normalizeOpeningMessage(data.openingMessage, { name, section }),
       refusalStyle: String(data.refusalStyle ?? "").trim() || defaultRefusalStyle,
       responseFormat: normalizeResponseFormatSettings(data.responseFormat),
-      section: String(data.section ?? "Workspace"),
-      sourceUsage: normalizeSourceUsageSettings(data.sourceUsage)
+      section,
+      sourceUsage: normalizeSourceUsageSettings(data.sourceUsage),
+      studentFacingInstructions: normalizeStudentFacingInstructions(data.studentFacingInstructions, { name, section })
     };
   } catch {
     return null;

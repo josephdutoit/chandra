@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const inviteToken = randomBytes(32).toString("base64url");
     const tokenHash = hashInviteToken(inviteToken);
     const expiresAtDate = new Date(Date.now() + inviteTtlDays * 24 * 60 * 60 * 1000);
-    const inviteUrl = new URL("/auth", request.url);
+    const inviteUrl = new URL("/auth", publicFrontendOrigin(request));
     inviteUrl.searchParams.set("role", "teacher");
     inviteUrl.searchParams.set("teacherInvite", inviteToken);
 
@@ -50,6 +50,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: message }, { status: 500 });
     }
 
+    if (message.includes("FRONTEND_ORIGIN")) {
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+
     return NextResponse.json({ error: "Teacher invite creation failed." }, { status: 500 });
   }
 }
@@ -66,4 +70,20 @@ function getBearerToken(request: Request) {
 
 function hashInviteToken(inviteToken: string) {
   return createHash("sha256").update(inviteToken).digest("hex");
+}
+
+function publicFrontendOrigin(request: Request) {
+  const configuredOrigin = (process.env.FRONTEND_ORIGIN ?? process.env.NEXT_PUBLIC_APP_ORIGIN ?? "").trim();
+
+  if (configuredOrigin) {
+    return configuredOrigin.replace(/\/$/, "");
+  }
+
+  const requestOrigin = new URL(request.url).origin;
+
+  if (process.env.NODE_ENV === "production" && /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(requestOrigin)) {
+    throw new Error("FRONTEND_ORIGIN is required in production to create teacher invite links.");
+  }
+
+  return requestOrigin;
 }

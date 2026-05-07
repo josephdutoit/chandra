@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 import re
 from functools import lru_cache
@@ -11,6 +12,8 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 from pypdf import PdfReader, PdfWriter
+
+logger = logging.getLogger(__name__)
 
 MAX_TOTAL_PAGES = 12
 _PAGE_ASSET_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -57,7 +60,7 @@ async def fetch_pdf_page_assets_via_next(
     if not shared_secret:
         return [metadata_only_page_asset(page) for page in selected_ranges]
 
-    next_base_url = (os.getenv("NEXT_INTERNAL_BASE_URL") or os.getenv("FRONTEND_ORIGIN") or "http://127.0.0.1:3000").rstrip("/")
+    next_base_url = internal_next_base_url()
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -74,11 +77,31 @@ async def fetch_pdf_page_assets_via_next(
             )
         response.raise_for_status()
         payload = response.json()
-    except Exception:
+    except Exception as error:
+        logger.warning(
+            "Internal PDF asset build failed.",
+            extra={
+                "error": str(error),
+                "next_base_url": next_base_url,
+                "selected_page_count": len(selected_ranges),
+            },
+        )
         return [metadata_only_page_asset(page) for page in selected_ranges]
 
     assets = payload.get("assets") if isinstance(payload, dict) else []
     return assets if isinstance(assets, list) else [metadata_only_page_asset(page) for page in selected_ranges]
+
+
+def internal_next_base_url() -> str:
+    configured_url = os.getenv("NEXT_INTERNAL_BASE_URL") or os.getenv("FRONTEND_ORIGIN")
+
+    if configured_url:
+        return configured_url.rstrip("/")
+
+    if os.getenv("CHANDRA_ENV", "").strip().lower() in {"prod", "production"}:
+        raise RuntimeError("NEXT_INTERNAL_BASE_URL or FRONTEND_ORIGIN is required for production PDF assets.")
+
+    return "http://127.0.0.1:3000"
 
 
 def metadata_only_page_asset(page: dict[str, Any]) -> dict[str, Any]:

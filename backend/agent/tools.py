@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Protocol
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class PdfRetriever(Protocol):
@@ -125,7 +128,7 @@ async def search_pdf_pages_via_next(
     if not shared_secret:
         return []
 
-    next_base_url = (os.getenv("NEXT_INTERNAL_BASE_URL") or os.getenv("FRONTEND_ORIGIN") or "http://127.0.0.1:3000").rstrip("/")
+    next_base_url = internal_next_base_url()
 
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -144,11 +147,32 @@ async def search_pdf_pages_via_next(
             )
         response.raise_for_status()
         payload = response.json()
-    except Exception:
+    except Exception as error:
+        logger.warning(
+            "Internal PDF retrieval failed.",
+            extra={
+                "class_id": class_id,
+                "error": str(error),
+                "next_base_url": next_base_url,
+                "professor_id": professor_id,
+            },
+        )
         return []
 
     pages = payload.get("pages") if isinstance(payload, dict) else []
     return pages if isinstance(pages, list) else []
+
+
+def internal_next_base_url() -> str:
+    configured_url = os.getenv("NEXT_INTERNAL_BASE_URL") or os.getenv("FRONTEND_ORIGIN")
+
+    if configured_url:
+        return configured_url.rstrip("/")
+
+    if os.getenv("CHANDRA_ENV", "").strip().lower() in {"prod", "production"}:
+        raise RuntimeError("NEXT_INTERNAL_BASE_URL or FRONTEND_ORIGIN is required for production PDF retrieval.")
+
+    return "http://127.0.0.1:3000"
 
 
 def normalize_pdf_page_result(page: dict[str, Any] | Any) -> dict[str, Any]:

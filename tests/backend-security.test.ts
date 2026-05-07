@@ -75,10 +75,33 @@ test("backend shared-secret comparison is timing-safe", () => {
 test("FastAPI CORS origins are environment-configurable for production", () => {
   const source = readFileSync(join(repoRoot, "backend/main.py"), "utf8");
   const envExample = readFileSync(join(repoRoot, "config/env.example"), "utf8");
+  const deployScript = readFileSync(join(repoRoot, "scripts/deploy-backend-cloudrun.sh"), "utf8");
 
   assert.match(source, /BACKEND_CORS_ORIGINS/);
   assert.match(source, /FRONTEND_ORIGIN/);
   assert.match(envExample, /BACKEND_CORS_ORIGINS=/);
+  assert.match(envExample, /NEXT_INTERNAL_BASE_URL=/);
+  assert.match(deployScript, /FRONTEND_ORIGIN/);
+  assert.match(deployScript, /NEXT_INTERNAL_BASE_URL/);
+  assert.match(deployScript, /BACKEND_CORS_ORIGINS/);
+});
+
+test("production backend internal URLs and OpenRouter referer do not silently fall back to localhost", () => {
+  const toolsSource = readFileSync(join(repoRoot, "backend/agent/tools.py"), "utf8");
+  const assetsSource = readFileSync(join(repoRoot, "backend/retrieval/pdf_page_assets.py"), "utf8");
+  const openRouterSource = readFileSync(join(repoRoot, "backend/agent/openrouter_client.py"), "utf8");
+  const fastApiSource = readFileSync(join(repoRoot, "backend/main.py"), "utf8");
+  const appHosting = readFileSync(join(repoRoot, "apphosting.yaml"), "utf8");
+  const inviteRoute = readFileSync(join(repoRoot, "frontend/app/api/teacher-invites/route.ts"), "utf8");
+
+  assert.match(toolsSource, /raise RuntimeError\("NEXT_INTERNAL_BASE_URL or FRONTEND_ORIGIN is required/);
+  assert.match(assetsSource, /raise RuntimeError\("NEXT_INTERNAL_BASE_URL or FRONTEND_ORIGIN is required/);
+  assert.match(openRouterSource, /OPENROUTER_HTTP_REFERER or FRONTEND_ORIGIN is required in production/);
+  assert.match(fastApiSource, /OPENROUTER_HTTP_REFERER or FRONTEND_ORIGIN is required in production/);
+  assert.match(inviteRoute, /publicFrontendOrigin/);
+  assert.match(inviteRoute, /FRONTEND_ORIGIN is required in production to create teacher invite links/);
+  assert.match(appHosting, /FRONTEND_ORIGIN/);
+  assert.match(appHosting, /https:\/\/chandra-frontend--chandra-f6e13\.us-central1\.hosted\.app/);
 });
 
 test("chat routes enforce bounded request sizes before backend work", () => {
