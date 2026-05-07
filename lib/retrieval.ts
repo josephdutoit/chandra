@@ -2,6 +2,7 @@ import { adminDb } from "./firebase-admin";
 import type { DocumentReference } from "firebase-admin/firestore";
 import {
   createSourceMetadata,
+  hasExactLookupSignal,
   materialTypeForKind,
   problemNumbersFromText,
   rankMaterialChunks
@@ -47,6 +48,7 @@ export async function retrieveCourseContext(
   const { classId, professorId } = normalizeRetrievalScope(scope);
   const staticCandidates = toCandidates(documents.filter((document) => document.courseId === classId));
   const queryEmbedding = await createQueryEmbedding(query);
+  const shouldIncludeKeywordCandidates = hasExactLookupSignal(query) || Boolean(options.materialId);
   const vectorCandidates = queryEmbedding?.values.length
     ? await getVectorMaterialCandidates({
         classId,
@@ -56,19 +58,25 @@ export async function retrieveCourseContext(
         queryVector: queryEmbedding.values
       })
     : [];
+  let classDocuments: SourceDocument[] | null = null;
+
+  if (vectorCandidates.length && shouldIncludeKeywordCandidates) {
+    classDocuments = await getClassMaterialDocuments({ classId, materialId: options.materialId, professorId });
+  }
+
+  const keywordCandidates = classDocuments ? toCandidates(classDocuments) : [];
   let ranked = vectorCandidates.length
     ? rankMaterialChunks({
-        candidates: [...staticCandidates, ...vectorCandidates],
+        candidates: deduplicateCandidates([...staticCandidates, ...vectorCandidates, ...keywordCandidates]),
         limit,
         query,
         queryVector: queryEmbedding?.values,
         sourceHints
       })
     : null;
-  let classDocuments: SourceDocument[] | null = null;
 
   if (!ranked || !ranked.hits.length) {
-    classDocuments = await getClassMaterialDocuments({ classId, materialId: options.materialId, professorId });
+    classDocuments ??= await getClassMaterialDocuments({ classId, materialId: options.materialId, professorId });
     ranked = rankMaterialChunks({
       candidates: [...staticCandidates, ...toCandidates(classDocuments)],
       limit,
@@ -253,6 +261,21 @@ function toCandidates(sourceDocuments: SourceDocument[]) {
     );
 }
 
+function deduplicateCandidates(candidates: ReturnType<typeof toCandidates>) {
+  const seen = new Set<string>();
+
+  return candidates.filter((candidate) => {
+    const key = [candidate.document.id, candidate.chunk.id].join(":");
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 function hasReadyChunks(sourceDocuments: SourceDocument[]) {
   return sourceDocuments.some((document) => document.status === "ready" && document.chunks.length > 0);
 }
@@ -388,6 +411,11 @@ function normalizeChunk({
   title: string;
 }): SourceChunk {
   const content = String(chunkData.content ?? chunkData.chunk_text ?? "");
+  const rawPageStart = readOptionalNumber(chunkData.pageStart ?? chunkData.page_start ?? chunkData.pageNumber);
+  const rawPageEnd = readOptionalNumber(chunkData.pageEnd ?? chunkData.page_end ?? rawPageStart);
+  const pageStart = rawPageStart && rawPageEnd ? Math.min(rawPageStart, rawPageEnd) : rawPageStart;
+  const pageEnd = rawPageStart && rawPageEnd ? Math.max(rawPageStart, rawPageEnd) : rawPageEnd;
+  const pageNumber = pageStart ?? readOptionalNumber(chunkData.pageNumber);
   const problemNumbers = Array.isArray(chunkData.problemNumbers)
     ? chunkData.problemNumbers.map(String)
     : problemNumbersFromText(`${chunkData.label ?? ""}\n${content}`);
@@ -402,7 +430,9 @@ function normalizeChunk({
     label: String(chunkData.label ?? chunkData.sectionHeading ?? "Uploaded excerpt"),
     materialId: String(chunkData.materialId ?? materialId),
     materialType: String(chunkData.materialType ?? materialType),
-    pageNumber: readOptionalNumber(chunkData.pageNumber ?? chunkData.page_start ?? chunkData.pageStart),
+    pageEnd,
+    pageNumber,
+    pageStart,
     problemNumbers,
     professorId: readProfessorId(chunkData) || teacherId,
     professorName: readOptionalString(chunkData.professorName ?? chunkData.professor_name),

@@ -78,7 +78,10 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
   langGraphTrace?: TutorTrace;
+  learningStrategyTelemetry?: LearningStrategyTelemetry;
+  retrievalConfidence?: RetrievalConfidence;
   sources?: TutorSource[];
+  structuredOutput?: TutorStructuredOutput;
 };
 
 export type Conversation = {
@@ -139,12 +142,98 @@ export type RetrievalHit = {
 
 export type RetrievalConfidence = "high" | "medium" | "low";
 
+export type TutorStructuredSections = {
+  answer: string;
+  hint?: string;
+  explanation?: string;
+  formula?: string;
+  example?: string;
+  checkWork?: string;
+  sourceNote?: string;
+  nextStep?: string;
+};
+
+export type TutorStructuredMetadata = {
+  hintLevel: "none" | "small_hint" | "guided_step" | "worked_example" | "refusal";
+  sourceConfidence: "high" | "medium" | "low";
+  studentActionNeeded:
+    | "none"
+    | "show_attempt"
+    | "try_next_step"
+    | "answer_question"
+    | "review_source"
+    | "paste_problem"
+    | "ask_teacher";
+  mode:
+    | "guided_problem_solving"
+    | "socratic"
+    | "check_work"
+    | "reading_helper"
+    | "exam_review"
+    | "source_lookup"
+    | "direct_answer_refusal"
+    | "clarification"
+    | "off_topic_redirect";
+};
+
+export type TutorStructuredOutput = {
+  sections: TutorStructuredSections;
+  metadata: TutorStructuredMetadata;
+};
+
 export type TutorSource = {
   title: string;
   materialType: string;
   citationsRequired?: boolean;
   pageNumber?: number;
   problemNumber?: string;
+};
+
+export type ConversationReviewStatus =
+  | "new"
+  | "reviewed"
+  | "needs_follow_up"
+  | "misunderstanding_spotted"
+  | "good_learning_moment"
+  | "ai_answer_needs_review";
+
+export type TeacherConversationReview = {
+  conversationId: string;
+  classId: string;
+  teacherId: string;
+  status: ConversationReviewStatus;
+  privateNote: string;
+  reviewedAt: unknown;
+  updatedAt: unknown;
+  flags: string[];
+};
+
+export type TeacherConversationSourceAuditSummary = {
+  sourceCount: number;
+  sources: TutorSource[];
+  noSourceUsedWarning: boolean;
+  lowSourceConfidence: boolean;
+  latestRetrievalConfidence?: RetrievalConfidence;
+};
+
+export type TeacherConversationReviewSummary = {
+  conversationId: string;
+  id: string;
+  classId: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  teacherId: string;
+  teacherName?: string;
+  title: string;
+  messageCount: number;
+  lastMessageAt: unknown;
+  topic: string;
+  modelId: string;
+  sourceAudit: TeacherConversationSourceAuditSummary;
+  latestRetrievalConfidence?: RetrievalConfidence;
+  review: TeacherConversationReview;
+  reviewStatus: ConversationReviewStatus;
 };
 
 export type TutorTrace = {
@@ -169,9 +258,47 @@ export type TutorApiResponse = {
   conversationId?: string;
   message: string;
   content: string;
+  hintLevel?: string;
   langGraphTrace?: TutorTrace;
+  learningStrategyTelemetry?: LearningStrategyTelemetry;
+  mode?: string;
+  studentActionNeeded?: string;
   sources: TutorSource[];
+  structuredOutput?: TutorStructuredOutput;
   retrievalConfidence: RetrievalConfidence;
+};
+
+export type LearningStrategyTutorMove =
+  | "ask_guiding_question"
+  | "small_hint"
+  | "worked_example"
+  | "check_work"
+  | "source_grounded_explanation"
+  | "refusal_redirect"
+  | "clarification";
+
+export type LearningStrategyExpectedStudentAction =
+  | "answer_question"
+  | "try_next_step"
+  | "show_work"
+  | "revise_step"
+  | "review_source"
+  | "paste_problem";
+
+export type LearningStrategyObservedOutcome =
+  | "unknown"
+  | "student_progressed"
+  | "student_still_stuck"
+  | "student_disengaged";
+
+export type LearningStrategyTelemetry = {
+  profileUsed: boolean;
+  selectedStrategy?: string;
+  selectedStrategyId?: string;
+  reasonSelected?: string;
+  tutorMove: LearningStrategyTutorMove;
+  expectedStudentAction: LearningStrategyExpectedStudentAction;
+  observedOutcome?: LearningStrategyObservedOutcome;
 };
 
 export type StudentLearningProfileConfidence = "low" | "medium" | "high";
@@ -244,4 +371,222 @@ export type StudentLearningProfileDocument = {
   minimumStudentMessagesForUpdate: number;
   activeProfile?: StudentLearningProfileContent | null;
   draftProfile?: StudentLearningProfileContent | null;
+};
+
+export type TeacherInsightRange = "today" | "yesterday" | "7d" | "30d";
+
+export type TeacherInsightMetric = {
+  id: string;
+  label: string;
+  value: number;
+  tone?: "teal" | "orange" | "gold";
+};
+
+export type TeacherInsightEvidenceChip = {
+  id: string;
+  label: string;
+  conversationId: string;
+  messageId?: string;
+};
+
+export type TeacherInsightDailySummary = {
+  title: string;
+  body: string;
+  evidence: TeacherInsightEvidenceChip[];
+};
+
+export type TeacherInsightTrendDirection = "up" | "down" | "new" | "recurring";
+
+export type TeacherInsightTrend = {
+  id: string;
+  label: string;
+  change: string;
+  direction: TeacherInsightTrendDirection;
+  evidenceConversationIds: string[];
+  sparkline: number[];
+};
+
+export type TeacherInsightMisconceptionStatus = "active" | "improving" | "emerging" | "resolved";
+
+export type TeacherInsightMisconceptionTimelineItem = {
+  id: string;
+  misconception: string;
+  firstAppeared: string;
+  seenInConversations: number;
+  status: TeacherInsightMisconceptionStatus;
+  evidenceConversationIds: string[];
+};
+
+export type TeacherInsightRecommendationPriority = "high" | "medium" | "low";
+
+export type TeacherInsightRecommendationAction = "inspect" | "upload" | "adjust" | "approve";
+
+export type TeacherInsightRecommendation = {
+  id: string;
+  priority: TeacherInsightRecommendationPriority;
+  title: string;
+  evidenceCount: number;
+  action: TeacherInsightRecommendationAction;
+  evidenceConversationIds: string[];
+};
+
+export type TeacherInsightEvidenceLink = {
+  id: string;
+  topic: string;
+  conversationCount: number;
+  studentInitials: string[];
+  lastSeenAt: string;
+  conversationIds: string[];
+};
+
+export type TeacherClassInsightsContent = {
+  metrics: TeacherInsightMetric[];
+  dailySummary: TeacherInsightDailySummary;
+  evidenceChips: TeacherInsightEvidenceChip[];
+  trends: TeacherInsightTrend[];
+  misconceptionTimeline: TeacherInsightMisconceptionTimelineItem[];
+  recommendations: TeacherInsightRecommendation[];
+  evidenceLinks: TeacherInsightEvidenceLink[];
+};
+
+export type TeacherInsightFeedbackAction = "useful" | "notUseful" | "dismiss" | "markResolved" | "addNote";
+
+export type TeacherClassInsightsDocument = {
+  id: string;
+  classId: string;
+  range: TeacherInsightRange;
+  generatedAt: unknown;
+  updatedAt: unknown;
+  modelId: string;
+  conversationCount: number;
+  studentCount: number;
+  studentMessageCount: number;
+  insight: TeacherClassInsightsContent;
+  teacherReviewed?: boolean;
+  dismissedItemIds?: string[];
+  usefulItemIds?: string[];
+  notUsefulItemIds?: string[];
+  resolvedItemIds?: string[];
+  teacherNotes?: string[];
+};
+
+export type TeacherOverviewStatusTone =
+  | "active"
+  | "ai-review"
+  | "draft"
+  | "failed"
+  | "follow-up"
+  | "high"
+  | "inactive"
+  | "ink"
+  | "new"
+  | "note"
+  | "processing"
+  | "ready"
+  | "teacher-only";
+
+export type TeacherClassOverviewMetricSummary = {
+  activeNow: number;
+  averageQuestionsPerStudentPerDay: number;
+  noActivity: number;
+  questionsToday: number;
+  totalConversations: number;
+  totalStudents: number;
+};
+
+export type TeacherClassOverviewSummary = {
+  activeStudentsToday: number;
+  body: string;
+  conversationCountToday: number;
+  questionsToday: number;
+  title: string;
+  topTopics: string[];
+};
+
+export type TeacherClassOverviewPriorityRow = {
+  action: "addNote" | "openRoster" | "viewChats";
+  actionLabel: string;
+  id: string;
+  issue: string;
+  status: string;
+  studentEmail: string;
+  studentId: string;
+  studentName: string;
+  tone: TeacherOverviewStatusTone;
+};
+
+export type TeacherClassOverviewRecentActivityRow = {
+  conversationId: string;
+  id: string;
+  lastMessageAt: unknown;
+  lastMessageLabel: string;
+  messageCount: number;
+  studentId: string;
+  studentName: string;
+  title: string;
+};
+
+export type TeacherClassOverviewReviewQueueRow = {
+  conversationId: string;
+  id: string;
+  meta: string;
+  status: string;
+  studentId: string;
+  studentName: string;
+  title: string;
+  tone: TeacherOverviewStatusTone;
+};
+
+export type TeacherClassOverviewLearningProfileRow = {
+  id: string;
+  meta: string;
+  status: string;
+  studentEmail: string;
+  studentId: string;
+  studentName: string;
+  tone: TeacherOverviewStatusTone;
+};
+
+export type TeacherClassOverviewKnowledgeStat = {
+  label: string;
+  tone: TeacherOverviewStatusTone;
+  value: number;
+};
+
+export type TeacherClassOverviewNextAction = {
+  action:
+    | "addKnowledge"
+    | "addStudent"
+    | "openKnowledge"
+    | "openInsights"
+    | "openRoster"
+    | "openStudentView"
+    | "reviewConversations"
+    | "reviewLearningProfiles"
+    | "testRetrieval"
+    | "viewStudentChats";
+  detail: string;
+  conversationId?: string;
+  id: string;
+  label: string;
+  studentEmail?: string;
+  studentId?: string;
+  studentName?: string;
+  tone: TeacherOverviewStatusTone;
+};
+
+export type TeacherClassOverview = {
+  classId: string;
+  date: string;
+  dateLabel: string;
+  generatedAt: string;
+  knowledgeStatus: TeacherClassOverviewKnowledgeStat[];
+  learningProfileRows: TeacherClassOverviewLearningProfileRow[];
+  metrics: TeacherClassOverviewMetricSummary;
+  nextActions: TeacherClassOverviewNextAction[];
+  priorityRows: TeacherClassOverviewPriorityRow[];
+  recentActivityRows: TeacherClassOverviewRecentActivityRow[];
+  reviewQueueRows: TeacherClassOverviewReviewQueueRow[];
+  summary: TeacherClassOverviewSummary;
+  timezone: string;
 };

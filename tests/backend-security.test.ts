@@ -51,3 +51,11 @@ test("Next chat route uses the private backend base URL for FastAPI", () => {
   assert.match(envExample, /BACKEND_API_BASE_URL=http:\/\/127\.0\.0\.1:8000/);
   assert.doesNotMatch(envExample, /NEXT_PUBLIC_API_BASE_URL/);
 });
+
+test("Firestore class settings rules accept the current teacher settings schema", () => {
+  const rules = readFileSync(join(repoRoot, "firestore.rules"), "utf8");
+
+  assert.match(rules, /"quoteSourcePassages"/);
+  assert.match(rules, /sourceUsage\.quoteSourcePassages is bool/);
+  assert.match(rules, /modelSettings\.responseLength in \["short", "medium", "long", "extended"\]/);
+});

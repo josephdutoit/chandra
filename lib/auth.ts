@@ -29,6 +29,8 @@ export type UserProfile = {
   createdAt?: unknown;
 };
 
+const presenceHeartbeatMs = 30000;
+
 export function subscribeToAuth(callback: (user: User | null) => void) {
   if (!auth) {
     callback(null);
@@ -154,7 +156,37 @@ export async function signInWithEmail(email: string, password: string) {
 
 export async function signOutCurrentUser() {
   assertFirebaseReady();
+  if (auth!.currentUser) {
+    await safelyWriteUserPresence(auth!.currentUser, null, false);
+  }
   return signOut(auth!);
+}
+
+export function startUserPresenceHeartbeat(user: User, profile: UserProfile) {
+  if (!db) {
+    return () => {};
+  }
+
+  let stopped = false;
+  const writeOnline = () => {
+    if (!stopped) {
+      void safelyWriteUserPresence(user, profile, true);
+    }
+  };
+  const handleVisibilityChange = () => {
+    void safelyWriteUserPresence(user, profile, document.visibilityState === "visible");
+  };
+
+  writeOnline();
+  const intervalId = window.setInterval(writeOnline, presenceHeartbeatMs);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  return () => {
+    stopped = true;
+    window.clearInterval(intervalId);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    void safelyWriteUserPresence(user, profile, false);
+  };
 }
 
 export async function getUserProfile(uid: string) {
@@ -191,6 +223,31 @@ export async function updateStudentClass({
 function assertFirebaseReady() {
   if (!isFirebaseConfigured || !auth || !db) {
     throw new Error("Firebase is not configured. Add NEXT_PUBLIC_FIREBASE_* values to .env.local.");
+  }
+}
+
+async function writeUserPresence(user: User, profile: UserProfile | null, online: boolean) {
+  if (!db) {
+    return;
+  }
+
+  await setDoc(doc(db, "userPresence", user.uid), {
+    classId: profile?.classId ?? "",
+    displayName: profile?.displayName ?? user.displayName ?? "",
+    email: String(profile?.email ?? user.email ?? "").trim().toLowerCase(),
+    lastSeenAt: serverTimestamp(),
+    online,
+    role: profile?.role ?? "",
+    uid: user.uid,
+    updatedAt: serverTimestamp()
+  });
+}
+
+async function safelyWriteUserPresence(user: User, profile: UserProfile | null, online: boolean) {
+  try {
+    await writeUserPresence(user, profile, online);
+  } catch (caughtError) {
+    console.warn("User presence update failed.", caughtError);
   }
 }
 

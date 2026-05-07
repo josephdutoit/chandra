@@ -3,11 +3,33 @@ import {
   TutorKnowledgeHttpError,
   authorizeClassTeacher,
   deleteTutorKnowledge,
+  getTutorKnowledgeDetails,
   updateTutorKnowledgeSettings,
   type TutorKnowledgeSourceSettings
 } from "@/lib/tutor-knowledge-server";
 
 export const runtime = "nodejs";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ materialId: string }> }
+) {
+  try {
+    const { materialId } = await params;
+    const classId = request.nextUrl.searchParams.get("classId")?.trim() ?? "";
+
+    if (!classId) {
+      return NextResponse.json({ error: "Choose a class before viewing tutor knowledge." }, { status: 400 });
+    }
+
+    await authorizeClassTeacher(request, classId);
+    const details = await getTutorKnowledgeDetails({ classId, materialId });
+
+    return NextResponse.json(details);
+  } catch (caughtError) {
+    return handleTutorKnowledgeError(caughtError, "Tutor knowledge detail load failed.");
+  }
+}
 
 export async function PATCH(
   request: NextRequest,

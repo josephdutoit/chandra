@@ -112,7 +112,6 @@ export function AuthForm() {
   if (!firebaseReady) {
     return (
       <section className="auth-card">
-        <p className="eyebrow">Firebase setup</p>
         <h1>Add your Firebase web app config.</h1>
         <p>
           Create a Firebase project, enable Email/Password authentication, add Firestore, then
@@ -125,7 +124,6 @@ export function AuthForm() {
   if (isLoading) {
     return (
       <section className="auth-card">
-        <p className="eyebrow">Loading</p>
         <h1>Checking your session.</h1>
       </section>
     );
@@ -135,7 +133,6 @@ export function AuthForm() {
     if (!profile) {
       return (
         <section className="auth-card">
-          <p className="eyebrow">Account setup</p>
           <h1>Choose your workspace.</h1>
           <p>
             Firebase signed you in, but this account does not have a role profile yet.
@@ -215,7 +212,6 @@ export function AuthForm() {
 
     return (
       <section className="auth-card">
-        <p className="eyebrow">Signed in</p>
         <h1>{profile?.displayName ?? user.email}</h1>
         <p>You are signed in as a {profile?.role ?? "Chandra"} account.</p>
         <Link className="primary-button" href={destination}>
@@ -227,7 +223,6 @@ export function AuthForm() {
 
   return (
     <section className="auth-card">
-      <p className="eyebrow">Accounts</p>
       <h1>{mode === "signup" ? "Create your Chandra account" : "Welcome back."}</h1>
 
       <div className="segmented-control" aria-label="Authentication mode">
