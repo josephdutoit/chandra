@@ -83,7 +83,15 @@ See `.env.example` for the full set of supported variables.
 
 ## Development
 
-Run the Next.js app:
+Run the full local stack:
+
+```bash
+npm run dev:all
+```
+
+That command loads `.env.local`, clears ports 3000 and 8000, starts the Next.js frontend, and starts the FastAPI backend without auto-reload so long streaming tutor responses are not interrupted.
+
+Or run the Next.js app by itself:
 
 ```bash
 npm run dev

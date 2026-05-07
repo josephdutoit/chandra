@@ -9,7 +9,13 @@ from typing import Any
 
 import pytest
 
-from agent.graph import build_multimodal_final_messages, run_pdf_rag_agent, run_pdf_rag_agent_stream
+from agent.graph import (
+    build_multimodal_final_messages,
+    diagnose_search_result,
+    run_pdf_rag_agent,
+    run_pdf_rag_agent_stream,
+    structured_tutor_output_from_answer,
+)
 from agent.tools import normalize_pdf_page_result
 from retrieval.pdf_page_assets import (
     deduplicate_page_ranges,
@@ -17,7 +23,14 @@ from retrieval.pdf_page_assets import (
     fetch_or_render_pdf_pages,
     render_page_images,
 )
-from retrieval.pdf_retriever import build_query_features, hybrid_page_score
+from retrieval.pdf_retriever import (
+    build_query_features,
+    equation_overlap_score,
+    equation_tokens_from_text,
+    hybrid_page_score,
+    problem_numbers_from_text,
+    section_related_top_k,
+)
 
 
 class FakeOpenRouterClient:
@@ -43,6 +56,190 @@ class FakeRetriever:
         return self.pages  # type: ignore[return-value]
 
 
+def test_twenty_realistic_student_turns_parse_into_expected_sections() -> None:
+    cases = [
+        {
+            "student": "idk how to start this chain rule one",
+            "answer": (
+                "A good first move is to identify the outside function. Hint: Treat x^2+1 as the inside "
+                "expression. What would you set u equal to?"
+            ),
+            "keys": ["answer", "hint", "nextStep"],
+        },
+        {
+            "student": "why did you put y prime after differentiating y^2",
+            "answer": (
+                "This is an implicit differentiation problem. Why this works: y is a function of x, so "
+                "differentiating y^2 gives 2y y'. What term needs the product rule?"
+            ),
+            "keys": ["answer", "explanation", "nextStep"],
+        },
+        {
+            "student": "what formula do I use for integration by parts",
+            "answer": (
+                "For integration by parts, pick u as the part that simplifies when differentiated. "
+                "Formula: \\int u\\,dv = uv - \\int v\\,du. Which part gets simpler if you differentiate it?"
+            ),
+            "keys": ["answer", "formula", "nextStep"],
+        },
+        {
+            "student": "can you check this derivative d/dx sin(x^2)=cos(x^2)",
+            "answer": (
+                "Your derivative setup is close. Check your work: The derivative of sin(x^2) needs the chain "
+                "rule, so a factor of 2x is missing. Where should that factor appear?"
+            ),
+            "keys": ["answer", "checkWork", "nextStep"],
+            "mode": "check_work",
+        },
+        {
+            "student": "just give me the final answer",
+            "answer": "I can't give you the final answer, but I can walk through a similar example or check your next step.",
+            "keys": ["answer"],
+            "hintLevel": "refusal",
+            "mode": "direct_answer_refusal",
+        },
+        {
+            "student": "where is int sqrt(9-x^2)/x^2 in the pdf",
+            "answer": (
+                "The problem is in Section 7.3 Trig Substitutions, Problem 14, on printed page 104 of "
+                "Paul Dawkins Calculus - Practice Problems."
+            ),
+            "keys": ["answer"],
+            "mode": "source_lookup",
+            "sources": True,
+        },
+        {
+            "student": "i'm stuck on this limit fraction",
+            "answer": (
+                "Because you're asking how to start, focus on the denominator. Hint: Factor first before "
+                "canceling anything. What factor do the numerator and denominator share?"
+            ),
+            "keys": ["answer", "hint", "nextStep"],
+        },
+        {
+            "student": "what does continuous actually mean",
+            "answer": (
+                "Continuity means the graph has no break at that x-value. Why this works: The function value, "
+                "left limit, and right limit all have to agree. Which of those three is failing in your example?"
+            ),
+            "keys": ["answer", "explanation", "nextStep"],
+        },
+        {
+            "student": "can you show a similar u-sub example",
+            "answer": (
+                "A similar problem would be $\\int x e^{x^2}\\,dx$. Example: Let $u=x^2$, then $du=2x\\,dx$, "
+                "so the integral becomes a constant multiple of $\\int e^u\\,du$. What part of your problem looks like the inside function?"
+            ),
+            "keys": ["answer", "example", "nextStep"],
+            "hintLevel": "worked_example",
+        },
+        {
+            "student": "what do I do next after rewriting it",
+            "answer": "Use the power rule on each term first. Next step: rewrite the square root as an exponent.",
+            "keys": ["answer", "nextStep"],
+        },
+        {
+            "student": "how do i start this optimization word problem",
+            "answer": (
+                "The wording points to an optimization setup. Hint: Draw a diagram and name the quantity you "
+                "are maximizing or minimizing. What variable could represent the unknown length?"
+            ),
+            "keys": ["answer", "hint", "nextStep"],
+        },
+        {
+            "student": "i have an exam tomorrow how do i recognize ratio test",
+            "answer": (
+                "For exam review, recognize this as a ratio-test question: compare |a_{n+1}/a_n|. "
+                "What limit would you set up?"
+            ),
+            "keys": ["answer", "nextStep"],
+            "mode": "exam_review",
+        },
+        {
+            "student": "write a text to my friend for me",
+            "answer": "I can only help with course material here. Send a calculus question, worksheet problem, or concept you want to work on.",
+            "keys": ["answer"],
+            "mode": "off_topic_redirect",
+        },
+        {
+            "student": "what formula for tangent lines in polar",
+            "answer": (
+                "The selected page gives the tangent-with-polar-coordinates section. Formula: For polar curves, "
+                "use $\\frac{dy}{dx}=\\frac{(dy/d\\theta)}{(dx/d\\theta)}$. What are x and y in terms of r and theta?"
+            ),
+            "keys": ["answer", "formula", "nextStep"],
+            "sources": True,
+        },
+        {
+            "student": "for part b do I use the same substitution",
+            "answer": (
+                "For part b, use the same substitution from part a. Hint: Keep the new bounds in u so you do "
+                "not switch back too early. What are the bounds after substitution?"
+            ),
+            "keys": ["answer", "hint", "nextStep"],
+            "sources": True,
+        },
+        {
+            "student": "this problem isn't matching the worksheet",
+            "answer": "Ask your teacher which worksheet version this is from; the selected pages do not show that exact problem.",
+            "keys": ["answer"],
+            "studentActionNeeded": "ask_teacher",
+            "sources": True,
+        },
+        {
+            "student": "help with #8",
+            "answer": "Please paste the exact problem text or upload the page so I can match it to the class material.",
+            "keys": ["answer"],
+            "mode": "clarification",
+            "studentActionNeeded": "paste_problem",
+        },
+        {
+            "student": "is my limit step valid if I cancel the x terms",
+            "answer": (
+                "Your limit step is not valid yet. Check your work: You canceled a term that is inside a sum "
+                "rather than a common factor. What can you factor first?"
+            ),
+            "keys": ["answer", "checkWork", "nextStep"],
+            "mode": "check_work",
+        },
+        {
+            "student": "why can't I use l'hospital on this",
+            "answer": (
+                "For L'Hospital's Rule, first verify the form is $0/0$ or $\\infty/\\infty$. Why this works: "
+                "The theorem applies to indeterminate quotients, not every fraction. What form do you get after direct substitution?"
+            ),
+            "keys": ["answer", "explanation", "nextStep"],
+        },
+        {
+            "student": "how do I solve this trig equation on the worksheet",
+            "answer": (
+                "Start by isolating the trig function. Formula: If $\\sin x = a$, use the reference angle and "
+                "quadrant information. Hint: Check the interval before listing solutions. What interval is the problem using?"
+            ),
+            "keys": ["answer", "hint", "formula", "nextStep"],
+        },
+    ]
+
+    for case in cases:
+        sources = [{"title": "Calculus Practice Problems"}] if case.get("sources") else []
+        result = structured_tutor_output_from_answer(
+            case["answer"],
+            {"retrieval_confidence": "high" if sources else "low"},
+            sources,
+        )
+
+        assert list(result["sections"].keys()) == case["keys"], case["student"]
+        assert result["metadata"]["hintLevel"] == case.get("hintLevel", result["metadata"]["hintLevel"])
+        assert result["metadata"]["mode"] == case.get("mode", result["metadata"]["mode"])
+        assert result["metadata"]["studentActionNeeded"] == case.get(
+            "studentActionNeeded",
+            result["metadata"]["studentActionNeeded"],
+        )
+        assert result["metadata"]["sourceConfidence"] == ("high" if sources else "low")
+        for forbidden_label in ["Hint:", "Why this works:", "Formula:", "Example:", "Check your work:", "Next step:"]:
+            assert forbidden_label not in result["sections"]["answer"], case["student"]
+
+
 @pytest.mark.asyncio
 async def test_direct_answer_path_does_not_call_retrieval_for_conceptual_question() -> None:
     client = FakeOpenRouterClient([{"content": "Try isolating x first.", "tool_calls": []}])
@@ -58,8 +255,178 @@ async def test_direct_answer_path_does_not_call_retrieval_for_conceptual_questio
     )
 
     assert response["content"] == "Try isolating x first."
+    assert response["structuredOutput"]["sections"]["answer"] == "Try isolating x first."
+    assert list(response["structuredOutput"]["sections"].keys()) == ["answer"]
+    assert response["structuredOutput"]["metadata"]["sourceConfidence"] == "low"
     assert len(client.calls) == 1
     assert retriever.calls == []
+
+
+@pytest.mark.asyncio
+async def test_direct_answer_refusal_maps_to_structured_refusal() -> None:
+    client = FakeOpenRouterClient(
+        [
+            {
+                "content": "I can't give you the final answer, but I can check your attempted next step.",
+                "tool_calls": [],
+            }
+        ]
+    )
+    retriever = FakeRetriever([])
+
+    response = await run_pdf_rag_agent(
+        class_id="class-algebra",
+        messages=[{"role": "user", "content": "Just give me the answer."}],
+        model="openai/gpt-4.1-mini",
+        openrouter_client=client,
+        professor_id="teacher-1",
+        retriever=retriever,
+    )
+
+    assert response["message"] == "I can't give you the final answer, but I can check your attempted next step."
+    assert response["structuredOutput"]["metadata"]["mode"] == "direct_answer_refusal"
+    assert response["structuredOutput"]["metadata"]["hintLevel"] == "refusal"
+
+
+@pytest.mark.asyncio
+async def test_next_step_question_label_is_removed() -> None:
+    client = FakeOpenRouterClient(
+        [
+            {
+                "content": "Hint: Set the two curves equal first.\n\nQuestion: what x-values do you get?",
+                "tool_calls": [],
+            }
+        ]
+    )
+    retriever = FakeRetriever([])
+
+    response = await run_pdf_rag_agent(
+        class_id="class-algebra",
+        messages=[{"role": "user", "content": "Help me with the bounds."}],
+        model="openai/gpt-4.1-mini",
+        openrouter_client=client,
+        professor_id="teacher-1",
+        retriever=retriever,
+    )
+
+    assert response["structuredOutput"]["sections"]["hint"] == "Set the two curves equal first."
+    assert response["structuredOutput"]["sections"]["nextStep"] == "what x-values do you get?"
+
+
+def test_greeting_question_stays_in_main_answer() -> None:
+    result = structured_tutor_output_from_answer(
+        "Hi! What calculus problem are you working on?",
+        {"retrieval_confidence": "low"},
+        [],
+    )
+
+    assert result["sections"] == {"answer": "Hi! What calculus problem are you working on?"}
+
+
+def test_short_tutoring_sentence_after_greeting_can_still_extract_next_step() -> None:
+    result = structured_tutor_output_from_answer(
+        "Hi, try substitution first. What would you choose for u?",
+        {"retrieval_confidence": "low"},
+        [],
+    )
+
+    assert result["sections"] == {
+        "answer": "Hi, try substitution first",
+        "nextStep": "What would you choose for u?",
+    }
+
+
+def test_decimal_exercise_number_stays_in_final_next_step_question() -> None:
+    result = structured_tutor_output_from_answer(
+        "Use the definition from Exercise 2.2. What is Exercise 2.2 asking you to prove?",
+        {"retrieval_confidence": "low"},
+        [],
+    )
+
+    assert result["sections"] == {
+        "answer": "Use the definition from Exercise 2.2",
+        "nextStep": "What is Exercise 2.2 asking you to prove?",
+    }
+
+
+def test_wrapped_decimal_example_number_does_not_split_next_step() -> None:
+    result = structured_tutor_output_from_answer(
+        (
+            "A good one to practice is Example 2.4.1 on printed pages 48-49 in Section 2.4.1. "
+            "It shows how to build a transition matrix. "
+            "Would you like to try Example 2.4\n"
+            "1 together, starting with how to build the first column of the transition matrix?"
+        ),
+        {"retrieval_confidence": "low"},
+        [],
+    )
+
+    assert result["sections"] == {
+        "answer": (
+            "A good one to practice is Example 2.4.1 on printed pages 48-49 in Section 2.4.1. "
+            "It shows how to build a transition matrix"
+        ),
+        "nextStep": (
+            "Would you like to try Example 2.4.1 together, starting with how to build the first column "
+            "of the transition matrix?"
+        ),
+    }
+
+
+def test_labeled_only_response_does_not_duplicate_main_answer() -> None:
+    result = structured_tutor_output_from_answer(
+        (
+            "Hint: Start by recalling the vector-space operations on $V=(0,\\infty)$ from Exercise 1.1. "
+            "Then use Definition 2.1.1 on page 33: check that $T$ preserves the two vector-space operations."
+            "\n\nYour next step: What do the addition and scalar multiplication on $(0,\\infty)$ look like?"
+        ),
+        {"retrieval_confidence": "low"},
+        [],
+    )
+
+    assert result["sections"] == {
+        "answer": "",
+        "hint": (
+            "Start by recalling the vector-space operations on $V=(0,\\infty)$ from Exercise 1.1. "
+            "Then use Definition 2.1.1 on page 33: check that $T$ preserves the two vector-space operations"
+        ),
+        "nextStep": "What do the addition and scalar multiplication on $(0,\\infty)$ look like?",
+    }
+
+
+@pytest.mark.asyncio
+async def test_inline_small_hint_and_bold_section_markers_are_extracted() -> None:
+    client = FakeOpenRouterClient(
+        [
+            {
+                "content": (
+                    "Because the density is only positive for t >= 0. Small hint: use 0 as the lower endpoint. "
+                    "Formula: **P(T > c)=\\int_c^\\infty f(t) dt**. "
+                    "Example: **if g(t)=0.1e^{-t/10}, use \\int_6^\\infty g(t)dt**. "
+                    "What integral would you write first?"
+                ),
+                "tool_calls": [],
+            }
+        ]
+    )
+    retriever = FakeRetriever([])
+
+    response = await run_pdf_rag_agent(
+        class_id="class-algebra",
+        messages=[{"role": "user", "content": "Help me with probability density setup."}],
+        model="openai/gpt-4.1-mini",
+        openrouter_client=client,
+        professor_id="teacher-1",
+        retriever=retriever,
+    )
+
+    sections = response["structuredOutput"]["sections"]
+
+    assert sections["hint"] == "use 0 as the lower endpoint."
+    assert sections["formula"] == "P(T > c)=\\int_c^\\infty f(t) dt"
+    assert sections["example"] == "if g(t)=0.1e^{-t/10}, use \\int_6^\\infty g(t)dt"
+    assert "Small hint:" not in sections["answer"]
+    assert sections["nextStep"] == "What integral would you write first?"
 
 
 @pytest.mark.asyncio
@@ -119,6 +486,10 @@ async def test_pasted_concrete_math_problem_forces_exact_problem_search(tmp_path
     )
 
     assert response["content"].startswith("This is listed")
+    assert "sections" in response["structuredOutput"]
+    assert "metadata" in response["structuredOutput"]
+    assert response["structuredOutput"]["metadata"]["sourceConfidence"] == "high"
+    assert response["structuredOutput"]["metadata"]["studentActionNeeded"] == "try_next_step"
     assert len(client.calls) == 2
     assert retriever.calls == [
         {
@@ -196,9 +567,109 @@ async def test_streaming_pasted_concrete_math_problem_forces_exact_problem_searc
     assert [event["type"] for event in events] == ["search_batch", "step", "step", "final"]
     assert events[0]["searches"][0]["description"] == "Checking exact problem and page"
     assert events[-1]["payload"]["content"].startswith("This is listed")
+    assert events[-1]["payload"]["structuredOutput"]["metadata"]["sourceConfidence"] == "high"
     assert len(client.calls) == 2
     assert len(retriever.calls) == 1
     assert retriever.calls[0]["query"].startswith("find exact problem in problem PDF")
+
+
+@pytest.mark.asyncio
+async def test_textbook_section_request_forces_generic_section_search(tmp_path: Path) -> None:
+    first_image = tmp_path / "section_p104.png"
+    second_image = tmp_path / "section_p105.png"
+    first_image.write_bytes(b"section page 104")
+    second_image.write_bytes(b"section page 105")
+    client = FakeOpenRouterClient(
+        [
+            {
+                "content": "Section 7.3 is about trig substitution.",
+                "tool_calls": [],
+            },
+            {
+                "content": (
+                    "Section 7.3 explains trig substitution across the selected textbook pages. "
+                    "Hint: first match the expression to one of the standard trig-sub forms. "
+                    "Which square-root pattern do you see?"
+                ),
+                "tool_calls": [],
+            },
+        ]
+    )
+    retriever = FakeRetriever(
+        [
+            {
+                "doc_id": "textbook",
+                "title": "Uploaded Calculus Textbook",
+                "page_start": 104,
+                "page_end": 104,
+                "section": "Section 7.3 Trig Substitutions",
+                "score": 0.98,
+                "chunk_text": "Section 7.3 introduces trig substitution forms.",
+                "source_pdf_path": "data/rendered/textbook.pdf",
+                "material_type": "reading",
+            },
+            {
+                "doc_id": "textbook",
+                "title": "Uploaded Calculus Textbook",
+                "page_start": 105,
+                "page_end": 105,
+                "section": "Section 7.3 Trig Substitutions",
+                "score": 0.96,
+                "chunk_text": "More examples from Section 7.3.",
+                "source_pdf_path": "data/rendered/textbook.pdf",
+                "material_type": "reading",
+            },
+        ]
+    )
+
+    async def page_asset_builder(pages: list[dict[str, Any]], *, max_total_pages: int) -> list[dict[str, Any]]:
+        assert max_total_pages == 12
+        return [
+            {
+                "doc_id": page["doc_id"],
+                "title": page["title"],
+                "page_start": page["page_start"],
+                "page_end": page["page_end"],
+                "printed_page_start": page["page_start"],
+                "printed_page_end": page["page_end"],
+                "score": page["score"],
+                "material_type": page["material_type"],
+                "images": [str(first_image if page["page_start"] == 104 else second_image)],
+                "citation_label": f"{page['title']}, page {page['page_start']}",
+            }
+            for page in pages
+        ]
+
+    response = await run_pdf_rag_agent(
+        class_id="class-calculus",
+        messages=[{"role": "user", "content": "Can you help me with textbook Section 7.3 on trig substitution?"}],
+        model="openai/gpt-4.1-mini",
+        openrouter_client=client,
+        page_asset_builder=page_asset_builder,
+        professor_id="teacher-1",
+        retriever=retriever,
+    )
+
+    assert len(client.calls) == 2
+    assert retriever.calls == [
+        {
+            "query": (
+                "find textbook reading section chapter pages "
+                "Can you help me with textbook Section 7.3 on trig substitution?"
+            ),
+            "top_k": 5,
+            "class_id": "class-calculus",
+            "professor_id": "teacher-1",
+        }
+    ]
+    assert response["content"].startswith("Section 7.3 explains")
+    assert response["langGraphTrace"]["searchQueries"] == [retriever.calls[0]["query"]]
+    assert [page["pageStart"] for page in response["langGraphTrace"]["selectedPages"]] == [104, 105]
+    assert response["sources"][0] == {
+        "materialType": "reading",
+        "pageNumber": 104,
+        "title": "Uploaded Calculus Textbook",
+    }
 
 
 @pytest.mark.asyncio
@@ -829,6 +1300,27 @@ def test_hybrid_page_score_boosts_exact_page_and_problem_matches() -> None:
     assert exact_score > semantic_neighbor_score
 
 
+def test_hybrid_page_score_prefers_numbered_item_over_adjacent_page_only_match() -> None:
+    query_features = build_query_features("page 41 problem 2.2")
+    requested_page_without_item_score = hybrid_page_score(
+        query_features,
+        page_start=41,
+        page_end=41,
+        searchable_text="The chapter discussion continues with determinant examples and applications.",
+        vector_score=0.65,
+    )
+    numbered_item_page_score = hybrid_page_score(
+        query_features,
+        page_start=42,
+        page_end=42,
+        searchable_text="Problems. 2.2. Recall the vector space V = (0, oo) given in Problem 1.1.",
+        vector_score=0.65,
+    )
+
+    assert {"2.2", "2.3", "4"}.issubset(problem_numbers_from_text("Problem 2.2, Exercise 2.3, and question 4."))
+    assert numbered_item_page_score > requested_page_without_item_score
+
+
 def test_problem_locator_query_prefers_problem_pdf_over_textbook() -> None:
     query_features = build_query_features("Can you find the trig substitution problem with 1/sqrt(9x^2 - 36x + 37)?")
     problem_pdf_score = hybrid_page_score(
@@ -850,6 +1342,86 @@ def test_problem_locator_query_prefers_problem_pdf_over_textbook() -> None:
 
     assert query_features["problem_locator_intent"] is True
     assert problem_pdf_score > textbook_score
+
+
+def test_textbook_section_query_prefers_reading_pages_generically() -> None:
+    query_features = build_query_features("Can you help me understand Section 7.3 in the textbook?")
+    textbook_score = hybrid_page_score(
+        query_features,
+        material_type="reading",
+        page_start=104,
+        page_end=104,
+        searchable_text="Any Calculus Textbook Section 7.3 Trig Substitutions worked examples and definitions.",
+        vector_score=0.7,
+    )
+    worksheet_score = hybrid_page_score(
+        query_features,
+        material_type="assignment",
+        page_start=7,
+        page_end=7,
+        searchable_text="Worksheet problem 7.3 asks students to practice trig substitution.",
+        vector_score=0.99,
+    )
+
+    assert query_features["textbook_section_intent"] is True
+    assert section_related_top_k(query_features, 5) == 8
+    assert textbook_score > worksheet_score
+
+
+def test_equation_tokens_expand_math_notation_equivalents() -> None:
+    query_tokens = equation_tokens_from_text(r"\lim \sqrt{x} + \int derivative")
+    ocr_tokens = equation_tokens_from_text("limit square root of x plus integral differentiate")
+
+    assert {"lim", "limit", "sqrt", "square_root", "int", "integral", "derivative", "differentiate"}.issubset(
+        query_tokens.union(ocr_tokens)
+    )
+    assert {"sqrt", "square_root"}.issubset(equation_tokens_from_text("square root"))
+    assert equation_overlap_score(
+        "limit square root integral differentiate",
+        equation_tokens_from_text(r"\lim \sqrt{x} \int derivative"),
+    ) > 0.75
+
+
+def test_search_result_diagnostics_name_missing_retrieval_piece() -> None:
+    problem_only = diagnose_search_result(
+        "worksheet 4 problem 7 isolate variable method",
+        [
+            {
+                "title": "Worksheet 4",
+                "material_type": "worksheet",
+                "chunk_text": "Problem 7. Solve x + 2 = 8.",
+            }
+        ],
+        "Help me solve worksheet 4 problem 7.",
+    )
+    textbook_only = diagnose_search_result(
+        "find problem 7 exact page",
+        [
+            {
+                "title": "Algebra Textbook",
+                "material_type": "reading",
+                "chunk_text": "Worked example for isolating a variable.",
+            }
+        ],
+    )
+    wrong_section = diagnose_search_result(
+        "section 7.3 trig substitution problem 14",
+        [
+            {
+                "title": "Calculus Reader",
+                "material_type": "reading",
+                "section": "Section 6.2 Integration by Parts",
+                "chunk_text": "Worked example for integration by parts.",
+            }
+        ],
+    )
+
+    assert problem_only and problem_only["issue"] == "found problem page only, missing method"
+    assert "textbook reading notes worked example method" in problem_only["suggested_next_query"]
+    assert textbook_only and textbook_only["issue"] == "found textbook method, missing exact problem"
+    assert "find exact problem homework worksheet assignment practice problems" in textbook_only["suggested_next_query"]
+    assert wrong_section and wrong_section["issue"] == "wrong section/title"
+    assert "section 7.3" in wrong_section["suggested_next_query"]
 
 
 @pytest.mark.asyncio
@@ -1024,6 +1596,14 @@ def test_final_answer_instruction_is_strict(tmp_path: Path) -> None:
             ],
             "answer": "",
             "tool_call_count": 1,
+            "retrieval_diagnostics": [
+                {
+                    "issue": "found problem page only, missing method",
+                    "query": "worksheet problem 7",
+                    "reason": "Selected pages only locate the problem.",
+                    "suggested_next_query": "textbook reading notes worked example method problem 7",
+                }
+            ],
         }
     )
 
@@ -1031,14 +1611,19 @@ def test_final_answer_instruction_is_strict(tmp_path: Path) -> None:
 
     assert "Use only the selected PDF pages" in instruction
     assert "If no sharper query is available" in instruction
+    assert "Use retrieval_diagnostics to repair weak searches" in instruction
+    assert "found problem page only, missing method" in instruction
+    assert "sqrt/square root" in instruction
     assert "If the student only asks where a problem is" in instruction
     assert "locate it only; do not ask a follow-up" in instruction
     assert "If the student asks for the answer, final answer" in instruction
     assert "do not continue solving their exact problem" in instruction
     assert "a page that only locates the exercise or lists practice problems is not enough" in instruction
     assert "For conceptual method questions" in instruction
-    assert "Include one short quote of 20 words or fewer" in instruction
+    assert "quote the relevant passage exactly" in instruction
+    assert "generic copyright grounds" in instruction
     assert "solving help or method teaching" in instruction
+    assert "verify it before affirming it" in instruction
     assert "do not state the next move outright" in instruction
     assert "`$integral$ is Problem N in Section X, on printed page P of Title.`" in instruction
 
@@ -1144,6 +1729,83 @@ async def test_problem_location_response_keeps_printed_page_and_top_source(tmp_p
     assert "The problem is stated as" not in response["message"]
     assert "Would you like help" not in response["message"]
     assert response["sources"] == [{"materialType": "pdf", "pageNumber": 104, "title": "Calc 1 Homework"}]
+
+
+@pytest.mark.asyncio
+async def test_exercise_location_response_strips_decimal_followup_question(tmp_path: Path) -> None:
+    image = tmp_path / "reader_p78.png"
+    image.write_bytes(b"page 78")
+    bad_answer = (
+        "Exercise 2.2 is on printed page 78 of Linear Algebra Reader, in Chapter 2: "
+        "Linear Transformations and Matrices. It appears in the exercises list right after 2.1.\n\n"
+        "Would you like help understanding what Exercise 2.2 is asking?"
+    )
+    client = FakeOpenRouterClient(
+        [
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "search_pdf_pages",
+                            "arguments": json.dumps({"query": "find Exercise 2.2 Linear Algebra Reader", "top_k": 5}),
+                        },
+                    }
+                ],
+            },
+            {"content": bad_answer, "tool_calls": []},
+        ]
+    )
+    retriever = FakeRetriever(
+        [
+            {
+                "doc_id": "linear_algebra_reader",
+                "title": "Linear Algebra Reader",
+                "page_start": 78,
+                "page_end": 78,
+                "section": "Chapter 2: Linear Transformations and Matrices",
+                "score": 0.98,
+                "chunk_text": "Exercises 2.1 2.2 Linear Transformations and Matrices",
+                "source_pdf_path": "data/pdfs/linear_algebra_reader.pdf",
+            },
+        ]
+    )
+
+    async def page_asset_builder(pages: list[dict[str, Any]], *, max_total_pages: int) -> list[dict[str, Any]]:
+        return [
+            {
+                "doc_id": page["doc_id"],
+                "title": page["title"],
+                "page_start": page["page_start"],
+                "page_end": page["page_end"],
+                "printed_page_start": 78,
+                "printed_page_end": 78,
+                "score": page["score"],
+                "images": [str(image)],
+                "citation_label": "Linear Algebra Reader, page 78",
+            }
+            for page in pages
+        ]
+
+    response = await run_pdf_rag_agent(
+        class_id="class-linear-algebra",
+        messages=[{"role": "user", "content": "Where is Exercise 2.2 in Linear Algebra Reader?"}],
+        model="openai/gpt-4.1-mini",
+        openrouter_client=client,
+        page_asset_builder=page_asset_builder,
+        professor_id="teacher-1",
+        retriever=retriever,
+    )
+
+    assert response["message"] == (
+        "Exercise 2.2 is on printed page 78 of Linear Algebra Reader, in Chapter 2: "
+        "Linear Transformations and Matrices. It appears in the exercises list right after 2.1."
+    )
+    assert "Would you like help" not in response["message"]
+    assert list(response["structuredOutput"]["sections"].keys()) == ["answer"]
+    assert response["sources"] == [{"materialType": "pdf", "pageNumber": 78, "title": "Linear Algebra Reader"}]
 
 
 @pytest.mark.asyncio

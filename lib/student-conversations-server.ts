@@ -1,10 +1,38 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb, assertFirebaseAdminAuthReady } from "./firebase-admin";
+import {
+  inferLearningStrategyObservedOutcome,
+  normalizeLearningStrategyTelemetry
+} from "./learning-strategy-telemetry";
 import type { AuthorizedTutorChatScope } from "./tutor-chat-auth";
-import type { ChatMessage, StudentConversationSummary, StudentRosterActivitySummary, TutorApiResponse } from "./types";
+import { normalizeStructuredTutorOutput } from "./tutor-response";
+import type {
+  ChatMessage,
+  ConversationReviewStatus,
+  RetrievalConfidence,
+  StudentConversationSummary,
+  StudentRosterActivitySummary,
+  TeacherConversationReview,
+  TeacherConversationReviewSummary,
+  TeacherConversationSourceAuditSummary,
+  TutorApiResponse,
+  TutorSource
+} from "./types";
 
 const maxTitleLength = 72;
 const maxDocumentIdLength = 200;
+const maxTeacherReviewNoteLength = 1000;
+const presenceActiveWindowMs = 90 * 1000;
+const conversationReviewStatuses = new Set<ConversationReviewStatus>([
+  "new",
+  "reviewed",
+  "needs_follow_up",
+  "misunderstanding_spotted",
+  "good_learning_moment",
+  "ai_answer_needs_review"
+]);
+const classMaterialQuestionPattern =
+  /\b(assignment|class material|class materials|example|handout|homework|lecture|notes|page|pdf|problem|reading|rubric|textbook|worksheet)\b/i;
 const topicTitlePatterns = [
   { pattern: /\b(chain\s*rule)\b/i, title: "Derivative chain rule" },
   { pattern: /\b(product\s*rule)\b/i, title: "Product rule derivatives" },
@@ -128,9 +156,11 @@ export async function saveAssistantMessage({
       createdAt,
       id: assistantMessageId,
       langGraphTrace: response.langGraphTrace,
+      learningStrategyTelemetry: response.learningStrategyTelemetry,
       retrievalConfidence: response.retrievalConfidence,
       role: "assistant",
-      sources: response.sources ?? []
+      sources: response.sources ?? [],
+      structuredOutput: response.structuredOutput
     },
     modelId
   });
@@ -224,10 +254,208 @@ export async function listStudentConversations({
     );
 }
 
-export async function listTeacherRosterActivity({
+export async function listTeacherClassConversations({
   classId
 }: {
   classId: string;
+}): Promise<TeacherConversationReviewSummary[]> {
+  assertFirebaseAdminAuthReady();
+
+  const classReference = adminDb!.collection("classes").doc(classId);
+  const [conversationsSnapshot, reviewsSnapshot] = await Promise.all([
+    classReference.collection("conversations").get(),
+    classReference.collection("conversationReviews").get()
+  ]);
+  const reviewsByConversationId = new Map(
+    reviewsSnapshot.docs.map((reviewDoc) => [reviewDoc.id, reviewDocToTeacherReview(reviewDoc.id, reviewDoc.data())])
+  );
+
+  const rows = await Promise.all(
+    conversationsSnapshot.docs.map(async (conversationDoc) => {
+      const conversation = conversationDoc.data();
+      const sourceAudit = await getConversationSourceAudit({
+        classId,
+        conversationId: conversationDoc.id
+      });
+      const review = reviewsByConversationId.get(conversationDoc.id) ?? defaultTeacherConversationReview({
+        classId,
+        conversationId: conversationDoc.id,
+        teacherId: String(conversation.teacherId ?? "")
+      });
+
+      return {
+        classId: String(conversation.classId ?? classId),
+        conversationId: conversationDoc.id,
+        id: conversationDoc.id,
+        lastMessageAt: serializeFirestoreValue(conversation.lastMessageAt),
+        latestRetrievalConfidence: sourceAudit.latestRetrievalConfidence,
+        messageCount: Number(conversation.messageCount ?? 0),
+        modelId: String(conversation.modelId ?? ""),
+        review,
+        reviewStatus: review.status,
+        sourceAudit,
+        studentEmail: String(conversation.studentEmail ?? ""),
+        studentId: String(conversation.studentId ?? ""),
+        studentName: String(conversation.studentName ?? "Student"),
+        teacherId: String(conversation.teacherId ?? ""),
+        teacherName: stringOrUndefined(conversation.teacherName),
+        title: String(conversation.title ?? "Conversation"),
+        topic: inferConversationTopic(
+          String(conversation.title ?? ""),
+          stringOrUndefined(conversation.assignment),
+          Array.isArray(conversation.tags) ? conversation.tags.map(String) : undefined
+        )
+      };
+    })
+  );
+
+  return rows.sort(
+    (firstConversation, secondConversation) =>
+      timestampMillis(secondConversation.lastMessageAt) - timestampMillis(firstConversation.lastMessageAt)
+  );
+}
+
+export async function getConversationSourceAudit({
+  classId,
+  conversationId
+}: {
+  classId: string;
+  conversationId: string;
+}): Promise<TeacherConversationSourceAuditSummary> {
+  assertSafeDocumentId(conversationId, "Conversation id");
+  assertFirebaseAdminAuthReady();
+
+  const conversationReference = adminDb!
+    .collection("classes")
+    .doc(classId)
+    .collection("conversations")
+    .doc(conversationId);
+  const conversationSnapshot = await conversationReference.get();
+
+  if (!conversationSnapshot.exists) {
+    throw new ConversationPersistenceError("Conversation was not found.", 404);
+  }
+
+  const conversation = conversationSnapshot.data() ?? {};
+
+  if (conversation.classId !== classId) {
+    throw new ConversationPersistenceError("Conversation does not belong to this class.", 403);
+  }
+
+  const messagesSnapshot = await conversationReference.collection("messages").orderBy("createdAt", "asc").get();
+  const sourcesByKey = new Map<string, TutorSource>();
+  let hasAssistantMessage = false;
+  let latestRetrievalConfidence: RetrievalConfidence | undefined;
+  let hasLowRetrievalConfidence = false;
+  let hasClassMaterialQuestion = false;
+
+  messagesSnapshot.docs.forEach((messageDoc) => {
+    const message = messageDoc.data();
+    const role = String(message.role ?? "");
+
+    if (role === "student" && classMaterialQuestionPattern.test(String(message.content ?? ""))) {
+      hasClassMaterialQuestion = true;
+    }
+
+    if (role !== "assistant") {
+      return;
+    }
+
+    hasAssistantMessage = true;
+    const retrievalConfidence = normalizeRetrievalConfidence(message.retrievalConfidence);
+
+    if (retrievalConfidence) {
+      latestRetrievalConfidence = retrievalConfidence;
+      hasLowRetrievalConfidence = hasLowRetrievalConfidence || retrievalConfidence === "low";
+    }
+
+    for (const source of normalizeTutorSources(message.sources)) {
+      sourcesByKey.set(sourceKey(source), source);
+    }
+  });
+
+  const sources = Array.from(sourcesByKey.values());
+  const sourceRequired = hasClassMaterialQuestion && hasAssistantMessage;
+  const noSourceUsedWarning = sourceRequired && sources.length === 0;
+
+  return {
+    latestRetrievalConfidence,
+    lowSourceConfidence: hasLowRetrievalConfidence || noSourceUsedWarning,
+    noSourceUsedWarning,
+    sourceCount: sources.length,
+    sources
+  };
+}
+
+export async function updateTeacherConversationReview({
+  classId,
+  conversationId,
+  flags,
+  privateNote,
+  status,
+  teacherId
+}: {
+  classId: string;
+  conversationId: string;
+  teacherId: string;
+  status: ConversationReviewStatus;
+  privateNote: string;
+  flags: string[];
+}): Promise<TeacherConversationReview> {
+  assertSafeDocumentId(conversationId, "Conversation id");
+  assertFirebaseAdminAuthReady();
+
+  if (!conversationReviewStatuses.has(status)) {
+    throw new ConversationPersistenceError("Conversation review status is invalid.", 400);
+  }
+
+  const conversationReference = adminDb!
+    .collection("classes")
+    .doc(classId)
+    .collection("conversations")
+    .doc(conversationId);
+  const conversationSnapshot = await conversationReference.get();
+
+  if (!conversationSnapshot.exists) {
+    throw new ConversationPersistenceError("Conversation was not found.", 404);
+  }
+
+  const conversation = conversationSnapshot.data() ?? {};
+
+  if (conversation.classId !== classId) {
+    throw new ConversationPersistenceError("Conversation does not belong to this class.", 403);
+  }
+
+  const reviewReference = adminDb!
+    .collection("classes")
+    .doc(classId)
+    .collection("conversationReviews")
+    .doc(conversationId);
+  const reviewData = {
+    classId,
+    conversationId,
+    flags: sanitizeReviewFlags(flags),
+    privateNote: privateNote.slice(0, maxTeacherReviewNoteLength),
+    reviewedAt: status === "new" ? null : FieldValue.serverTimestamp(),
+    status,
+    teacherId,
+    updatedAt: FieldValue.serverTimestamp()
+  };
+
+  await reviewReference.set(reviewData, { merge: true });
+
+  const savedReviewSnapshot = await reviewReference.get();
+  return reviewDocToTeacherReview(conversationId, savedReviewSnapshot.data() ?? reviewData);
+}
+
+export async function listTeacherRosterActivity({
+  classId,
+  date,
+  timezone
+}: {
+  classId: string;
+  date?: string;
+  timezone?: string;
 }): Promise<StudentRosterActivitySummary[]> {
   assertFirebaseAdminAuthReady();
 
@@ -236,10 +464,14 @@ export async function listTeacherRosterActivity({
     adminDb!.collection("classes").doc(classId).collection("conversations").get(),
     adminDb!.collection("classes").doc(classId).collection("studentSupport").get()
   ]);
+  const rosterEmails = rosterSnapshot.docs
+    .map((studentDoc) => String(studentDoc.data().email ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  const presenceByEmail = await getStudentPresenceByEmail(classId, rosterEmails);
   const activeDaysByEmail = new Map<string, Set<string>>();
   const activityByEmail = new Map<string, StudentRosterActivitySummary>();
   const lastStudentMessageAtByEmail = new Map<string, number>();
-  const todayKey = dateKey(new Date().toISOString());
+  const todayKey = date || dateKey(new Date().toISOString(), timezone);
   const supportByEmail = new Map(
     supportSnapshot.docs
       .map((supportDoc) => {
@@ -259,6 +491,7 @@ export async function listTeacherRosterActivity({
       return;
     }
 
+    const presence = presenceByEmail.get(studentEmail);
     activityByEmail.set(studentEmail, {
       conversationCount: 0,
       displayName: String(student.displayName ?? "").trim() || studentEmail,
@@ -273,6 +506,9 @@ export async function listTeacherRosterActivity({
       teacherNotes: supportByEmail.get(studentEmail) ?? "",
       totalQuestions: 0
     });
+    if (presence?.isOnline) {
+      activityByEmail.get(studentEmail)!.status = "active";
+    }
     activeDaysByEmail.set(studentEmail, new Set());
     lastStudentMessageAtByEmail.set(studentEmail, 0);
   });
@@ -321,7 +557,7 @@ export async function listTeacherRosterActivity({
       if (role === "student") {
         activity.totalQuestions += 1;
 
-        const activeDay = dateKey(createdAt);
+        const activeDay = dateKey(createdAt, timezone);
 
         if (activeDay) {
           activeDaysByEmail.get(studentEmail)?.add(activeDay);
@@ -348,19 +584,61 @@ export async function listTeacherRosterActivity({
   });
 
   activityByEmail.forEach((activity) => {
+    const presence = presenceByEmail.get(activity.studentEmail.trim().toLowerCase());
     activity.recentConversations = activity.recentConversations
       .sort((firstConversation, secondConversation) =>
         timestampMillis(secondConversation.lastMessageAt) - timestampMillis(firstConversation.lastMessageAt)
       )
       .slice(0, 3);
     activity.lastChatTopic = activity.recentConversations[0]?.title ?? "No saved topic";
+    if (presence?.lastSeenAt && timestampMillis(presence.lastSeenAt) > timestampMillis(activity.lastActiveAt)) {
+      activity.lastActiveAt = presence.lastSeenAt;
+    }
     activity.status =
-      activity.questionsToday > 0 ? "active" : activity.totalQuestions > 0 || activity.conversationCount > 0 ? "inactive" : "no_activity";
+      presence?.isOnline ? "active" : activity.totalQuestions > 0 || activity.conversationCount > 0 ? "inactive" : "no_activity";
   });
 
   return Array.from(activityByEmail.values()).sort((firstActivity, secondActivity) =>
     firstActivity.studentEmail.localeCompare(secondActivity.studentEmail)
   );
+}
+
+async function getStudentPresenceByEmail(classId: string, studentEmails: string[]) {
+  const uniqueEmails = Array.from(new Set(studentEmails.map((email) => email.trim().toLowerCase()).filter(Boolean)));
+  const presenceByEmail = new Map<string, { isOnline: boolean; lastSeenAt: string }>();
+
+  for (let index = 0; index < uniqueEmails.length; index += 30) {
+    const emailBatch = uniqueEmails.slice(index, index + 30);
+
+    if (!emailBatch.length) {
+      continue;
+    }
+
+    const snapshot = await adminDb!.collection("userPresence").where("email", "in", emailBatch).get();
+
+    snapshot.docs.forEach((presenceDoc) => {
+      const presence = presenceDoc.data() ?? {};
+      const email = String(presence.email ?? "").trim().toLowerCase();
+      const lastSeenAt = String(serializeFirestoreValue(presence.lastSeenAt) ?? "");
+
+      if (!email || presence.role !== "student" || presence.classId !== classId) {
+        return;
+      }
+
+      const existingPresence = presenceByEmail.get(email);
+
+      if (existingPresence && timestampMillis(existingPresence.lastSeenAt) >= timestampMillis(lastSeenAt)) {
+        return;
+      }
+
+      presenceByEmail.set(email, {
+        isOnline: Boolean(presence.online) && Date.now() - timestampMillis(lastSeenAt) <= presenceActiveWindowMs,
+        lastSeenAt
+      });
+    });
+  }
+
+  return presenceByEmail;
 }
 
 export async function updateTeacherStudentSupport({
@@ -437,8 +715,11 @@ export async function listTeacherConversationMessages({
       createdAt: String(serializeFirestoreValue(data.createdAt) ?? ""),
       id: String(data.id ?? messageDoc.id),
       langGraphTrace: data.langGraphTrace,
+      learningStrategyTelemetry: normalizeLearningStrategyTelemetry(data.learningStrategyTelemetry),
+      retrievalConfidence: normalizeRetrievalConfidence(data.retrievalConfidence),
       role: data.role,
-      sources: Array.isArray(data.sources) ? data.sources : undefined
+      sources: Array.isArray(data.sources) ? data.sources : undefined,
+      structuredOutput: normalizeStructuredTutorOutput(data.structuredOutput, String(data.content ?? ""))
     } as ChatMessage;
   });
 }
@@ -452,11 +733,32 @@ async function getLastSignInAt(studentEmail: string) {
   }
 }
 
-function dateKey(value: unknown) {
+function dateKey(value: unknown, timezone?: string) {
   const millis = timestampMillis(value);
 
   if (!millis) {
     return "";
+  }
+
+  if (timezone) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        day: "2-digit",
+        month: "2-digit",
+        timeZone: timezone,
+        year: "numeric"
+      }).formatToParts(new Date(millis));
+      const byType = new Map(parts.map((part) => [part.type, part.value]));
+      const year = byType.get("year");
+      const month = byType.get("month");
+      const day = byType.get("day");
+
+      if (year && month && day) {
+        return `${year}-${month}-${day}`;
+      }
+    } catch {
+      // Fall back to UTC if the caller passes an unsupported timezone.
+    }
   }
 
   return new Date(millis).toISOString().slice(0, 10);
@@ -529,8 +831,10 @@ export async function listStudentConversationMessages({
       createdAt: String(serializeFirestoreValue(data.createdAt) ?? ""),
       id: String(data.id ?? messageDoc.id),
       langGraphTrace: data.langGraphTrace,
+      retrievalConfidence: normalizeRetrievalConfidence(data.retrievalConfidence),
       role: data.role,
-      sources: Array.isArray(data.sources) ? data.sources : undefined
+      sources: Array.isArray(data.sources) ? data.sources : undefined,
+      structuredOutput: normalizeStructuredTutorOutput(data.structuredOutput, String(data.content ?? ""))
     } as ChatMessage;
   });
 }
@@ -776,6 +1080,17 @@ async function saveStudentMessage({
     message: studentMessage,
     modelId
   });
+  await updatePreviousLearningStrategyTelemetryOutcome({
+    classId: scope.classId,
+    conversationId,
+    studentMessage
+  }).catch((caughtError) => {
+    console.error("Learning strategy telemetry outcome update skipped", JSON.stringify({
+      classId: scope.classId,
+      conversationId,
+      message: caughtError instanceof Error ? caughtError.message : String(caughtError)
+    }));
+  });
 }
 
 async function saveConversationMessage({
@@ -805,10 +1120,13 @@ async function saveConversationMessage({
       createdAt: lastMessageAt,
       id: message.id,
       langGraphTrace: message.langGraphTrace,
+      learningStrategyTelemetry:
+        message.role === "assistant" ? normalizeLearningStrategyTelemetry(message.learningStrategyTelemetry) : undefined,
       modelId: message.role === "assistant" ? modelId : undefined,
       retrievalConfidence: message.role === "assistant" ? message.retrievalConfidence : undefined,
       role: message.role,
-      sources: message.sources
+      sources: message.sources,
+      structuredOutput: message.role === "assistant" ? message.structuredOutput : undefined
     }));
 
     transaction.update(conversationReference, {
@@ -817,6 +1135,55 @@ async function saveConversationMessage({
       updatedAt: lastMessageAt
     });
   });
+}
+
+async function updatePreviousLearningStrategyTelemetryOutcome({
+  classId,
+  conversationId,
+  studentMessage
+}: {
+  classId: string;
+  conversationId: string;
+  studentMessage: ChatMessage;
+}) {
+  const outcome = inferLearningStrategyObservedOutcome(studentMessage.content);
+
+  if (outcome === "unknown") {
+    return;
+  }
+
+  const conversationReference = adminDb!.collection("classes").doc(classId).collection("conversations").doc(conversationId);
+  const messagesSnapshot = await conversationReference
+    .collection("messages")
+    .orderBy("createdAt", "desc")
+    .limit(8)
+    .get();
+  const studentCreatedAtMillis = timestampMillis(studentMessage.createdAt);
+
+  for (const messageDoc of messagesSnapshot.docs) {
+    const message = messageDoc.data() ?? {};
+
+    if (message.role !== "assistant" || timestampMillis(message.createdAt) > studentCreatedAtMillis) {
+      continue;
+    }
+
+    const telemetry = normalizeLearningStrategyTelemetry(message.learningStrategyTelemetry);
+
+    if (!telemetry || (telemetry.observedOutcome && telemetry.observedOutcome !== "unknown")) {
+      continue;
+    }
+
+    await messageDoc.ref.set(
+      {
+        learningStrategyTelemetry: {
+          ...telemetry,
+          observedOutcome: outcome
+        }
+      },
+      { merge: true }
+    );
+    return;
+  }
 }
 
 function compactFirestoreData(data: Record<string, unknown>) {
@@ -838,6 +1205,144 @@ function serializeFirestoreValue(value: unknown) {
 function stringOrUndefined(value: unknown) {
   const text = String(value ?? "").trim();
   return text || undefined;
+}
+
+function defaultTeacherConversationReview({
+  classId,
+  conversationId,
+  teacherId
+}: {
+  classId: string;
+  conversationId: string;
+  teacherId: string;
+}): TeacherConversationReview {
+  return {
+    classId,
+    conversationId,
+    flags: [],
+    privateNote: "",
+    reviewedAt: "",
+    status: "new",
+    teacherId,
+    updatedAt: ""
+  };
+}
+
+function reviewDocToTeacherReview(conversationId: string, data: Record<string, unknown>): TeacherConversationReview {
+  const status = normalizeConversationReviewStatus(data.status);
+
+  return {
+    classId: String(data.classId ?? ""),
+    conversationId: String(data.conversationId ?? conversationId),
+    flags: sanitizeReviewFlags(data.flags),
+    privateNote: String(data.privateNote ?? "").slice(0, maxTeacherReviewNoteLength),
+    reviewedAt: serializeFirestoreValue(data.reviewedAt),
+    status,
+    teacherId: String(data.teacherId ?? ""),
+    updatedAt: serializeFirestoreValue(data.updatedAt)
+  };
+}
+
+function normalizeConversationReviewStatus(value: unknown): ConversationReviewStatus {
+  const status = String(value ?? "new") as ConversationReviewStatus;
+
+  return conversationReviewStatuses.has(status) ? status : "new";
+}
+
+function normalizeRetrievalConfidence(value: unknown): RetrievalConfidence | undefined {
+  return value === "high" || value === "medium" || value === "low" ? value : undefined;
+}
+
+function normalizeTutorSources(value: unknown): TutorSource[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.reduce<TutorSource[]>((sources, source) => {
+    if (!source || typeof source !== "object") {
+      return sources;
+    }
+
+    const sourceRecord = source as Record<string, unknown>;
+    const title = String(sourceRecord.title ?? "").trim();
+
+    if (!title) {
+      return sources;
+    }
+
+    const normalizedSource: TutorSource = {
+      materialType: String(sourceRecord.materialType ?? "class-material"),
+      title
+    };
+    const problemNumber = stringOrUndefined(sourceRecord.problemNumber);
+
+    if (typeof sourceRecord.citationsRequired === "boolean") {
+      normalizedSource.citationsRequired = sourceRecord.citationsRequired;
+    }
+
+    if (typeof sourceRecord.pageNumber === "number") {
+      normalizedSource.pageNumber = sourceRecord.pageNumber;
+    }
+
+    if (problemNumber) {
+      normalizedSource.problemNumber = problemNumber;
+    }
+
+    sources.push(normalizedSource);
+    return sources;
+  }, []);
+}
+
+function sourceKey(source: TutorSource) {
+  return [
+    source.title,
+    source.materialType,
+    source.pageNumber ? `p${source.pageNumber}` : "",
+    source.problemNumber ? `problem${source.problemNumber}` : ""
+  ]
+    .join("|")
+    .toLowerCase();
+}
+
+function sanitizeReviewFlags(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((flag) => String(flag ?? "").trim())
+        .filter(Boolean)
+        .map((flag) => flag.slice(0, 80))
+    )
+  ).slice(0, 20);
+}
+
+function inferConversationTopic(title: string, assignment?: string, tags?: string[]) {
+  const source = [assignment, ...(tags ?? []), title].filter(Boolean).join(" ").toLowerCase();
+
+  if (source.includes("off-topic") || source.includes("answer")) {
+    return "Off-topic";
+  }
+
+  if (source.includes("derivative") || source.includes("chain")) {
+    return "Derivatives";
+  }
+
+  if (source.includes("integral")) {
+    return "Integrals";
+  }
+
+  if (source.includes("limit")) {
+    return "Limits";
+  }
+
+  if (source.includes("problem")) {
+    return "Problem setup";
+  }
+
+  return "General help";
 }
 
 function timestampMillis(value: unknown) {

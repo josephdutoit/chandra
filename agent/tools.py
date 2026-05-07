@@ -13,6 +13,8 @@ SEARCH_PDF_PAGES_TOOL: dict[str, Any] = {
         "description": (
             "Search indexed class PDF page windows: homework/problem sets, worksheets, assignments, textbook readings, notes, and examples. "
             "Use this when class PDFs could help solve, explain, or locate the student's question. "
+            "When the student asks about a textbook section or chapter, search the generic textbook/reading section marker first "
+            "with the exact section or chapter number and topic words; the retriever will return the most related page windows from any indexed textbook. "
             "For find/identify/locate requests, prefer the problem PDF first: homework/problem sets, worksheets, assignments, and practice-problem PDFs; "
             "search textbook/readings only if no problem-set match is found or the student asks for solving help. "
             "When it genuinely helps, call this tool 2 or 3 times in the same turn with distinct complementary queries: "
@@ -21,7 +23,8 @@ SEARCH_PDF_PAGES_TOOL: dict[str, Any] = {
             "Use concise, focused queries with the likely topic/method, exact worksheet titles, problem/page numbers, "
             "figure/table labels, named equations, and the student's wording. For exact problem/page searches, include "
             "a locator verb such as find, where, locate, identify, or which. If previous selected pages are insufficient "
-            "or mismatched, search again with a narrower or alternate query."
+            "or mismatched, search again with a narrower or alternate query. If retrieval diagnostics are present, "
+            "search for the missing piece they name: method support, exact problem page, worked example, or corrected section/title."
         ),
         "parameters": {
             "type": "object",
@@ -33,12 +36,18 @@ SEARCH_PDF_PAGES_TOOL: dict[str, Any] = {
                         "such as find, where, locate, identify, or which, then include problem PDF, homework, problem set, "
                         "worksheet, assignment, or practice-problems terms before textbook terms. Include the likely topic or "
                         "method, exact titles, page numbers, problem numbers, section names, figure/table labels, and the "
-                        "student's wording when available. Keep filler source-type words out of textbook/method searches."
+                        "student's wording when available. Expand math notation with words when useful, such as sqrt/square root, "
+                        "int/integral, derivative/differentiate, and lim/limit. Keep filler source-type words out of textbook/method searches."
+                        " For textbook section requests, include textbook or reading plus the exact section/chapter marker and topic words, "
+                        "without assuming any particular textbook title."
                     ),
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "Ignored. The tool always returns the top 5 ranked page windows.",
+                    "description": (
+                        "Ignored. The tool usually returns the top 5 ranked page windows; textbook section/chapter "
+                        "queries may return more related windows."
+                    ),
                     "default": 5,
                 },
                 "student_reason": {

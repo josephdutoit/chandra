@@ -10,7 +10,6 @@ import {
   chunkTutorKnowledgeText,
   getTutorKnowledgeSourceMode,
   isTutorKnowledgeKind,
-  maxTutorKnowledgeUploadBytes,
   supportedTutorKnowledgeExtensions,
   type TutorKnowledgeChunk,
   type TutorKnowledgePage
@@ -75,6 +74,22 @@ export type TutorKnowledgeSourceSettings = {
   priority: TutorKnowledgePriority;
   requireCitations: boolean;
   teacherOnly: boolean;
+};
+
+export type TutorKnowledgeDetailChunk = {
+  id: string;
+  excerpt: string;
+  label: string;
+  pageEnd?: number | null;
+  pageStart?: number | null;
+  problemNumbers: string[];
+  sectionHeading: string;
+};
+
+export type TutorKnowledgeDetails = {
+  materialId: string;
+  relatedTopics: string[];
+  sampleChunks: TutorKnowledgeDetailChunk[];
 };
 
 export async function authorizeClassTeacher(request: Request, classId: string) {
@@ -383,6 +398,46 @@ export async function updateTutorKnowledgeSettings({
   };
 }
 
+export async function getTutorKnowledgeDetails({
+  classId,
+  materialId
+}: {
+  classId: string;
+  materialId: string;
+}): Promise<TutorKnowledgeDetails> {
+  const materialRef = adminDb!.collection("classes").doc(classId).collection("materials").doc(materialId);
+  const materialSnapshot = await materialRef.get();
+
+  if (!materialSnapshot.exists) {
+    throw new TutorKnowledgeHttpError("Tutor knowledge not found.", 404);
+  }
+
+  const chunksSnapshot = await materialRef.collection("chunks").orderBy("chunkIndex").limit(500).get().catch(() =>
+    materialRef.collection("chunks").orderBy("order").limit(500).get()
+  );
+  const chunks = chunksSnapshot.docs.map((chunkDoc) => {
+    const chunk = chunkDoc.data();
+    const excerpt = String(chunk.excerpt ?? chunk.chunk_text ?? chunk.chunkText ?? chunk.content ?? "").trim();
+    const sectionHeading = String(chunk.sectionHeading ?? chunk.section ?? "").trim();
+
+    return {
+      id: chunkDoc.id,
+      excerpt,
+      label: String(chunk.label ?? `Chunk ${Number(chunk.chunkIndex ?? 0) + 1}`).trim(),
+      pageEnd: readOptionalNumber(chunk.pageEnd ?? chunk.page_end),
+      pageStart: readOptionalNumber(chunk.pageStart ?? chunk.page_start ?? chunk.pageNumber),
+      problemNumbers: readProblemNumbers(chunk.problemNumbers),
+      sectionHeading
+    };
+  });
+
+  return {
+    materialId,
+    relatedTopics: detectRelatedTopics(chunks, materialSnapshot.data() ?? {}),
+    sampleChunks: chunks.filter((chunk) => chunk.excerpt).slice(0, 4)
+  };
+}
+
 export async function reprocessTutorKnowledge({
   classId,
   materialId,
@@ -577,6 +632,81 @@ function isTutorKnowledgePriority(value: unknown): value is TutorKnowledgePriori
 
 function readBooleanWithDefault(value: unknown, defaultValue: boolean) {
   return typeof value === "boolean" ? value : defaultValue;
+}
+
+function readOptionalNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numberValue = typeof value === "number" ? value : Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function readProblemNumbers(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function detectRelatedTopics(
+  chunks: Array<Pick<TutorKnowledgeDetailChunk, "label" | "problemNumbers" | "sectionHeading">>,
+  material: Record<string, unknown>
+) {
+  const topicCounts = new Map<string, number>();
+
+  addTopicCandidate(topicCounts, String(material.kind ?? ""));
+  addTopicCandidate(topicCounts, String(material.materialType ?? ""));
+
+  for (const chunk of chunks) {
+    addTopicCandidate(topicCounts, chunk.sectionHeading);
+
+    for (const problemNumber of chunk.problemNumbers.slice(0, 3)) {
+      addTopicCandidate(topicCounts, `Problem ${problemNumber}`);
+    }
+
+    if (!chunk.sectionHeading) {
+      addTopicCandidate(topicCounts, chunk.label);
+    }
+  }
+
+  return Array.from(topicCounts.entries())
+    .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
+    .map(([topic]) => topic)
+    .slice(0, 8);
+}
+
+function addTopicCandidate(topicCounts: Map<string, number>, value: string) {
+  const topic = normalizeTopicCandidate(value);
+
+  if (!topic) {
+    return;
+  }
+
+  topicCounts.set(topic, (topicCounts.get(topic) ?? 0) + 1);
+}
+
+function normalizeTopicCandidate(value: string) {
+  const normalized = value
+    .replace(/\s+/g, " ")
+    .replace(/^uploaded excerpt$/i, "")
+    .replace(/^knowledge chunk \d+$/i, "")
+    .replace(/^pasted tutor knowledge chunk \d+$/i, "")
+    .trim();
+
+  if (!normalized || normalized.length < 3 || normalized.length > 72) {
+    return "";
+  }
+
+  return normalized
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 async function readStoredMaterialFile(material: Record<string, unknown>) {
@@ -846,10 +976,6 @@ function readOptionalFile(formData: FormData) {
 }
 
 function validateFile(file: File) {
-  if (file.size > maxTutorKnowledgeUploadBytes) {
-    throw new TutorKnowledgeHttpError("Files must be 12 MB or smaller.", 400);
-  }
-
   const extension = getFileExtension(file.name);
   const supportedExtension = supportedTutorKnowledgeExtensions.some((item) => item === extension);
   const supportedContentType = !file.type || supportedContentTypes.has(file.type);

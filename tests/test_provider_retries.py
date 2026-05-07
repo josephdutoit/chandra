@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import ssl
 import types
 from typing import Any
 
@@ -58,6 +59,36 @@ async def test_openrouter_client_retries_read_errors(monkeypatch: pytest.MonkeyP
     assert response["content"] == "Recovered after retry."
     assert response["finish_reason"] == "stop"
     assert len(attempts) == 2
+
+
+@pytest.mark.asyncio
+async def test_openrouter_client_retries_ssl_errors_with_fresh_clients(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts: list[int] = []
+    closed_clients = 0
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout: float) -> None:
+            self.timeout = timeout
+
+        async def post(self, *_args: object, **_kwargs: object) -> FakeOpenRouterResponse:
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise ssl.SSLError("sslv3 alert bad record mac")
+
+            return FakeOpenRouterResponse()
+
+        async def aclose(self) -> None:
+            nonlocal closed_clients
+            closed_clients += 1
+
+    monkeypatch.setattr("agent.openrouter_client.httpx.AsyncClient", FakeAsyncClient)
+    client = OpenRouterClient(api_key="test-key", max_retries=2)
+
+    response = await client.chat(model="test-model", messages=[{"role": "user", "content": "hi"}])
+
+    assert response["content"] == "Recovered after retry."
+    assert len(attempts) == 2
+    assert closed_clients == 1
 
 
 @pytest.mark.asyncio

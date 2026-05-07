@@ -125,6 +125,41 @@ test("explicit page requests outrank broad semantic similarity", () => {
   assert.equal(result.hits[0]?.chunk.id, "page-129");
 });
 
+test("numbered item matches can override an adjacent explicit page miss", () => {
+  const requestedPageWithoutItem = makeDocument({
+    id: "linear-algebra-reader",
+    kind: "textbook",
+    title: "Linear Algebra Reader",
+    chunks: [
+      {
+        content: "The chapter discussion continues with determinant examples and applications.",
+        id: "page-41",
+        pageNumber: 41
+      }
+    ]
+  });
+  const numberedItemPage = makeDocument({
+    id: "linear-algebra-reader",
+    kind: "textbook",
+    title: "Linear Algebra Reader",
+    chunks: [
+      {
+        content: "Problems. 2.2. Recall the vector space V = (0, oo) given in Problem 1.1.",
+        id: "page-42",
+        pageNumber: 42
+      }
+    ]
+  });
+
+  const result = rankMaterialChunks({
+    candidates: toCandidates([requestedPageWithoutItem, numberedItemPage]),
+    query: "page 41 problem 2.2"
+  });
+
+  assert.equal(result.hits[0]?.chunk.id, "page-42");
+  assert.deepEqual(problemNumbersFromText("Problem 2.2, Exercise 2.3, and question 4."), ["2.2", "2.3", "4"]);
+});
+
 test("page range chunks keep page citations in source metadata", () => {
   const requestedRange = makeDocument({
     id: "calc-reader",

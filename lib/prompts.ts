@@ -3,10 +3,12 @@ import {
   defaultRefusalStyle,
   normalizeAnswerPolicySettings,
   normalizeClassModelSettings,
+  normalizeResponseFormatSettings,
   normalizeSourceUsageSettings,
   normalizeTutorBehavior,
   type AnswerPolicySettings,
   type ClassModelSettings,
+  type ResponseFormatSettings,
   type SourceUsageSettings,
   type TutorBehavior
 } from "./class-settings";
@@ -22,6 +24,7 @@ export type TeacherClassTutorConfig = {
   modelSettings: ClassModelSettings;
   name: string;
   refusalStyle: string;
+  responseFormat: ResponseFormatSettings;
   section: string;
   sourceUsage: SourceUsageSettings;
 };
@@ -83,6 +86,7 @@ export async function buildTutorSystemPrompt({
         refusalStyle:
           teacherClass?.refusalStyle ??
           defaultRefusalStyle,
+        responseFormat: teacherClass?.responseFormat ?? normalizeResponseFormatSettings(null),
         sourceUsage: teacherClass?.sourceUsage ?? normalizeSourceUsageSettings(null),
         studentLearningProfileDigest,
         retrievalInstruction
@@ -104,6 +108,7 @@ export async function buildTutorSystemPrompt({
       policyTitle: policy.title,
       instructions: policy.instructions,
       refusalStyle: policy.refusalStyle,
+      responseFormat: normalizeResponseFormatSettings(null),
       retrievalGuidance: policy.retrievalGuidance,
       sourceUsage: normalizeSourceUsageSettings(null),
       studentLearningProfileDigest,
@@ -121,6 +126,7 @@ function buildCoreTutorInstructions({
   modelSettings,
   policyTitle,
   refusalStyle,
+  responseFormat,
   retrievalGuidance,
   retrievalInstruction,
   studentLearningProfileDigest,
@@ -132,6 +138,7 @@ function buildCoreTutorInstructions({
   modelSettings: ClassModelSettings;
   policyTitle: string;
   refusalStyle: string;
+  responseFormat: ResponseFormatSettings;
   retrievalGuidance?: string;
   retrievalInstruction: string;
   sourceUsage: SourceUsageSettings;
@@ -169,14 +176,17 @@ function buildCoreTutorInstructions({
     "Source-use rules:",
     ...buildSourceUsageInstructions(sourceUsage, answerPolicy),
     "- Build the query from the student's exact wording plus the likely source type and topic/method, any known title, page, section, problem number, and recent source context.",
+    "- Make retrieval queries specific but not noisy: keep stable titles, sections, page/problem numbers, and distinctive math terms; expand common notation with words such as sqrt/square root, int/integral, derivative/differentiate, and lim/limit; drop filler.",
+    "- For textbook section or chapter requests, search generically with textbook/reading plus the exact section/chapter marker and topic words; do not assume a particular textbook title unless the student or prior cited source named it.",
+    "- If previous retrieval diagnostics say what was missing, build the next query for that missing piece: exact problem page, method support, worked example, or corrected section/title.",
     "- For follow-ups, use any previously cited source context in the conversation before deciding what to retrieve next.",
     "- Do not retrieve for greetings, study planning, or trivial self-contained questions. For method-teaching questions or a self-contained pasted problem, retrieve when class readings/examples would materially improve the explanation, quote, example, or hint.",
     ...(sourceUsage.citeSourcePages
       ? [
-          "- When using source material, mention the source title naturally and include page numbers or section references when available.",
-          "- When using textbook/readings/examples for solving help or method teaching, include one short quote of 20 words or fewer when a relevant quote is available, then paraphrase the idea. Do not only point the student to pages."
+          "- When using source material, mention the source title naturally and include page numbers or section references when available."
         ]
       : ["- When using source material, mention the source title naturally, but citations are optional unless needed for clarity."]),
+    sourceQuoteInstruction(sourceUsage),
     ...(answerPolicy.refuseAnswerOnlyRequests
       ? ["- For direct-answer requests, use retrieved textbook/readings/examples to teach a similar example, not to finish the student's exact problem."]
       : []),
@@ -188,7 +198,9 @@ function buildCoreTutorInstructions({
       : ["- If the retrieved source is weak, say what is uncertain and give a cautious general explanation without inventing source details."]),
     "",
     "Style:",
+    ...buildResponseFormatInstructions(responseFormat),
     "- Be warm, calm, and concrete.",
+    "- For simple greetings or check-ins, reply naturally in one short chat message and ask what course problem or concept the student wants to work on; do not format that as a next-step tutoring move.",
     "- Use LaTeX for math expressions."
   ];
 }
@@ -248,7 +260,7 @@ function buildTutorBehaviorInstructions(policyTitle: string) {
     "- Tutor behavior mode: Guided problem solving.",
     "- Start from the student's work when possible: ask what they tried, inspect their step, or ask them to choose the next move.",
     "- Give the smallest useful hint before giving a larger explanation.",
-    "- If the student makes progress, name the idea they used and then invite the next step."
+    "- If the student makes valid progress, name the idea they used and then invite the next step."
   ];
 }
 
@@ -261,7 +273,8 @@ function buildAnswerPolicyInstructions(answerPolicy: AnswerPolicySettings) {
       ? ["- Ask at most one focused guiding question before giving a larger explanation."]
       : ["- You may explain directly when that is clearer than asking a question first."]),
     "- Give the smallest useful hint before giving a larger explanation.",
-    "- If the student makes progress, name the idea they used and then invite the next step.",
+    "- When a student gives a calculation, answer, or conclusion, verify it before affirming it. If it is incorrect, point out the first wrong step or value and continue from the corrected idea.",
+    "- If the student makes valid progress, name the idea they used and then invite the next step.",
     "- If the student is reviewing completed work, explain mistakes and reasoning, but do not take over the rest of the assignment.",
     ...(answerPolicy.allowWorkedExamples
       ? ["- You may provide worked examples when they are teacher-created, clearly similar but not the student's exact graded problem, or explicitly allowed."]
@@ -294,6 +307,7 @@ function buildSourceUsageInstructions(sourceUsage: SourceUsageSettings, answerPo
           "- If the student asks to find, identify, or locate a specific problem, search the problem PDF first: homework/problem sets, worksheets, assignments, or practice-problem PDFs. Use textbook/readings only if no problem-set match is found.",
           "- For any concrete math problem the student asks about, including fully pasted problems, search for the exact problem/source first when class materials are available. Check whether it appears in uploaded problem PDFs, worksheets, assignments, practice problems, or textbook sections before helping.",
           "- After checking the exact problem/source, prefer relevant textbook/readings that explain the method, definition, formula, theorem, or example before relying only on general knowledge.",
+          "- If the student asks about a textbook section or chapter, retrieve that section/chapter from any indexed textbook/reading before answering.",
           "- For conceptual method questions such as when to use a technique, how to recognize a pattern, why a rule works, or requests for examples, search textbook/readings/examples so the explanation can use the class wording."
         ]
       : [
@@ -321,11 +335,60 @@ function responseLengthInstruction(responseLength: ClassModelSettings["responseL
     return "Answer in a few concise sentences unless the student asks for more.";
   }
 
+  if (responseLength === "extended") {
+    return "You may give a detailed multi-step explanation, quote relevant class-material passages when allowed, and include enough context for students who need more support.";
+  }
+
   if (responseLength === "long") {
-    return "Give a fuller explanation with clear steps, while still avoiding unnecessary length.";
+    return "Give a fuller explanation with clear steps and enough context for math-heavy examples.";
   }
 
   return "Keep replies brief enough for chat, with enough detail to move the student forward.";
+}
+
+function sourceQuoteInstruction(sourceUsage: SourceUsageSettings) {
+  if (!sourceUsage.quoteSourcePassages) {
+    return "- When using textbook/readings/examples, include at most one short quote of 20 words or fewer when useful, then paraphrase the idea.";
+  }
+
+  return "- For solving help or method teaching: Do not only point the student to pages. When a student asks to pull up, read, or quote a specific passage from selected uploaded class material, quote the relevant passage exactly with source/page context, then explain or paraphrase it. Do not refuse on generic copyright grounds for selected class materials, and do not invent missing words.";
+}
+
+function buildResponseFormatInstructions(responseFormat: ResponseFormatSettings) {
+  return [
+    ...(responseFormat.oneStepAtATime
+      ? ["- Work one step at a time: give the next useful hint or step, then pause for the student's attempt before continuing."]
+      : ["- You may combine multiple short steps when that is clearer, while still checking understanding."]),
+    ...(responseFormat.endWithCheckQuestion
+      ? ["- End tutoring replies with one brief check question or next-step prompt when it fits naturally."]
+      : ["- Do not force every reply to end with a question; end directly when the explanation is complete."]),
+    ...readingLevelInstructions(responseFormat.readingLevel),
+    ...mathNotationInstructions(responseFormat.mathNotation)
+  ];
+}
+
+function readingLevelInstructions(readingLevel: ResponseFormatSettings["readingLevel"]) {
+  if (readingLevel === "simple") {
+    return ["- Use simple wording, short sentences, and avoid unnecessary technical vocabulary."];
+  }
+
+  if (readingLevel === "advanced") {
+    return ["- Use precise academic vocabulary when useful, but define specialized terms briefly."];
+  }
+
+  return ["- Use standard classroom language appropriate for the course level."];
+}
+
+function mathNotationInstructions(mathNotation: ResponseFormatSettings["mathNotation"]) {
+  if (mathNotation === "plain") {
+    return ["- Prefer plain-language math explanations and introduce symbols only when needed."];
+  }
+
+  if (mathNotation === "symbolic") {
+    return ["- Use clear mathematical notation and LaTeX for formulas, while still explaining what symbols mean."];
+  }
+
+  return ["- Balance plain-language explanations with LaTeX notation for important formulas and steps."];
 }
 
 export async function getTeacherClassTutorConfig(courseId: string): Promise<TeacherClassTutorConfig | null> {
@@ -353,7 +416,8 @@ export async function getTeacherClassTutorConfig(courseId: string): Promise<Teac
       defaultAssignmentContext: data.defaultAssignmentContext as string | undefined,
       modelSettings: normalizeClassModelSettings(data.modelSettings),
       name: String(data.name ?? "Class"),
-      refusalStyle: String(data.refusalStyle ?? defaultRefusalStyle),
+      refusalStyle: String(data.refusalStyle ?? "").trim() || defaultRefusalStyle,
+      responseFormat: normalizeResponseFormatSettings(data.responseFormat),
       section: String(data.section ?? "Workspace"),
       sourceUsage: normalizeSourceUsageSettings(data.sourceUsage)
     };

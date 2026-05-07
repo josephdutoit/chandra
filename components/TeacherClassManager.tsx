@@ -2,20 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { apiUrl } from "@/lib/api-client";
 import { signOutCurrentUser } from "@/lib/auth";
 import {
   defaultRefusalStyle,
+  mathNotationOptions,
   normalizeAnswerPolicySettings,
   normalizeClassModelSettings,
+  normalizeResponseFormatSettings,
   normalizeSourceUsageSettings,
   normalizeTutorBehavior,
   preferredSourceTypeOptions,
+  readingLevelOptions,
   reasoningEffortOptions,
   responseLengthOptions,
   tutorBehaviorOptions,
   type AnswerPolicySettings,
+  type ResponseFormatSettings,
   type SourceUsageSettings
 } from "@/lib/class-settings";
 import {
@@ -35,18 +39,24 @@ import {
 import { defaultModelOptions } from "@/lib/model-options";
 import {
   formatBytes,
-  maxTutorKnowledgeUploadBytes,
   supportedTutorKnowledgeExtensions,
   tutorKnowledgeKinds,
   type TutorKnowledgeKind
 } from "@/lib/tutor-knowledge";
 import type {
   ChatMessage,
+  ConversationReviewStatus,
   StudentConversationSummary,
   StudentLearningProfileContent,
   StudentLearningProfileDocument,
   StudentLearningTriedStrategy,
-  StudentRosterActivitySummary
+  StudentRosterActivitySummary,
+  TeacherClassOverview,
+  TeacherClassInsightsDocument,
+  TeacherConversationReviewSummary,
+  TeacherConversationSourceAuditSummary,
+  TeacherInsightFeedbackAction,
+  TeacherInsightRange
 } from "@/lib/types";
 import { useAuth } from "./AuthProvider";
 
@@ -60,8 +70,44 @@ type MaterialUploadProgress = {
 type TeacherTab = "overview" | "roster" | "settings" | "knowledge" | "insights" | "conversations";
 type KnowledgeFilter = "All" | "Assignments" | "Textbook" | "Notes" | "Worked Examples" | "Rubrics" | "Answer Keys";
 type RosterFilter = "all" | "active" | "inactive" | "highQuestions" | "noConversations";
+type ConversationFilter =
+  | "all"
+  | "unreviewed"
+  | "activeToday"
+  | "highMessageCount"
+  | "noTeacherReview"
+  | "offTopic"
+  | "lowConfidence";
 type RosterConversationPreview = {
+  id: string;
+  lastMessageAt: unknown;
+  messageCount: number;
   meta: string;
+  title: string;
+};
+type ConversationReviewRow = {
+  id: string;
+  lastMessageAt: unknown;
+  lastMessageLabel: string;
+  messageCount: number;
+  modelId: string;
+  status: ConversationReviewStatus;
+  review: TeacherConversationReviewSummary["review"];
+  sourceAudit: TeacherConversationSourceAuditSummary;
+  latestRetrievalConfidence?: TeacherConversationReviewSummary["latestRetrievalConfidence"];
+  studentEmail: string;
+  studentId: string;
+  studentName: string;
+  title: string;
+  topic: string;
+};
+type ConversationSourceRow = {
+  citationCount: number;
+  confidence: string;
+  confidenceClass: "high" | "medium" | "low";
+  detail: string;
+  materialType: string;
+  pages: string[];
   title: string;
 };
 type RosterRow = {
@@ -101,18 +147,34 @@ type RetrievalTestResult = {
   title: string;
 };
 
+type MaterialDetailChunk = {
+  id: string;
+  excerpt: string;
+  label: string;
+  pageEnd?: number | null;
+  pageStart?: number | null;
+  problemNumbers: string[];
+  sectionHeading: string;
+};
+
+type MaterialDetail = {
+  materialId: string;
+  relatedTopics: string[];
+  sampleChunks: MaterialDetailChunk[];
+};
+
 const teacherTabs: Array<{ id: TeacherTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "roster", label: "Roster" },
-  { id: "settings", label: "AI Settings" },
   { id: "knowledge", label: "Knowledge" },
   { id: "insights", label: "Insights" },
-  { id: "conversations", label: "Conversations" }
+  { id: "conversations", label: "Conversations" },
+  { id: "settings", label: "Settings" }
 ];
 
 const rosterFilters: Array<{ id: RosterFilter; label: string }> = [
   { id: "all", label: "All" },
-  { id: "active", label: "Active recently" },
+  { id: "active", label: "Active now" },
   { id: "inactive", label: "Not active" },
   { id: "highQuestions", label: "High questions volume" },
   { id: "noConversations", label: "No conversations yet" }
@@ -126,6 +188,31 @@ const knowledgeFilters: KnowledgeFilter[] = [
   "Worked Examples",
   "Rubrics",
   "Answer Keys"
+];
+
+const conversationFilters: Array<{ id: ConversationFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "unreviewed", label: "Unreviewed" },
+  { id: "activeToday", label: "Active today" },
+  { id: "highMessageCount", label: "High message count" },
+  { id: "noTeacherReview", label: "No teacher review yet" },
+  { id: "offTopic", label: "Off-topic redirects" },
+  { id: "lowConfidence", label: "Low source confidence" }
+];
+
+const conversationReviewActions: Array<{ label: string; status: ConversationReviewStatus }> = [
+  { label: "Reviewed", status: "reviewed" },
+  { label: "Needs follow-up", status: "needs_follow_up" },
+  { label: "Misunderstanding spotted", status: "misunderstanding_spotted" },
+  { label: "Good learning moment", status: "good_learning_moment" },
+  { label: "AI answer needs review", status: "ai_answer_needs_review" }
+];
+
+const insightTimeFilters: Array<{ label: string; range: TeacherInsightRange }> = [
+  { label: "Today", range: "today" },
+  { label: "Yesterday", range: "yesterday" },
+  { label: "Last 7 days", range: "7d" },
+  { label: "Last 30 days", range: "30d" }
 ];
 
 const answerPolicySettings = [
@@ -171,6 +258,24 @@ const sourceUsageSettings = [
     id: "askClarificationIfSourceUnclear",
     title: "Ask clarification if source is unclear",
     description: "Confirm intent when materials are ambiguous."
+  },
+  {
+    id: "quoteSourcePassages",
+    title: "Quote source passages",
+    description: "Allow exact excerpts from uploaded class materials when students ask."
+  }
+] as const;
+
+const responseFormatSettings = [
+  {
+    id: "oneStepAtATime",
+    title: "One step at a time",
+    description: "Give the next hint or step, then wait before continuing."
+  },
+  {
+    id: "endWithCheckQuestion",
+    title: "End with a check question",
+    description: "Close replies with a quick question that checks understanding."
   }
 ] as const;
 
@@ -184,6 +289,15 @@ export function TeacherClassManager() {
   const [materials, setMaterials] = useState<ClassMaterial[]>([]);
   const [rosterActivity, setRosterActivity] = useState<StudentRosterActivitySummary[]>([]);
   const [studentConversations, setStudentConversations] = useState<StudentConversationSummary[]>([]);
+  const [classConversations, setClassConversations] = useState<TeacherConversationReviewSummary[]>([]);
+  const [classConversationMetrics, setClassConversationMetrics] = useState<{
+    followUp: number;
+    lowConfidence: number;
+    total: number;
+    unreviewed: number;
+  } | null>(null);
+  const [classOverview, setClassOverview] = useState<TeacherClassOverview | null>(null);
+  const [isLoadingClassOverview, setIsLoadingClassOverview] = useState(false);
   const [selectedStudentLearningProfile, setSelectedStudentLearningProfile] =
     useState<StudentLearningProfileDocument | null>(null);
   const [learningProfileStatusMessage, setLearningProfileStatusMessage] = useState("");
@@ -209,15 +323,31 @@ export function TeacherClassManager() {
   const [classSection, setClassSection] = useState("");
   const [studentEmail, setStudentEmail] = useState("");
   const [studentName, setStudentName] = useState("");
-  const [activeTab, setActiveTab] = useState<TeacherTab>("roster");
+  const [activeTab, setActiveTab] = useState<TeacherTab>("overview");
   const [rosterSearchQuery, setRosterSearchQuery] = useState("");
   const [rosterFilter, setRosterFilter] = useState<RosterFilter>("all");
+  const [conversationFilter, setConversationFilter] = useState<ConversationFilter>("all");
+  const [conversationSearchQuery, setConversationSearchQuery] = useState("");
+  const [conversationStudentFilter, setConversationStudentFilter] = useState("all");
+  const [conversationTopicFilter, setConversationTopicFilter] = useState("all");
+  const [evidenceConversationIds, setEvidenceConversationIds] = useState<string[]>([]);
   const [checkedStudentIds, setCheckedStudentIds] = useState<string[]>([]);
   const [isRosterDetailOpen, setIsRosterDetailOpen] = useState(true);
   const [isProfessorReviewOpen, setIsProfessorReviewOpen] = useState(false);
   const [teacherNotesByStudentId, setTeacherNotesByStudentId] = useState<Record<string, string>>({});
+  const [conversationNotesById, setConversationNotesById] = useState<Record<string, string>>({});
   const [savingNotesStudentId, setSavingNotesStudentId] = useState("");
+  const [savingReviewConversationId, setSavingReviewConversationId] = useState("");
+  const [reviewSaveMessage, setReviewSaveMessage] = useState("");
+  const [highlightedNoteConversationId, setHighlightedNoteConversationId] = useState("");
+  const [expandedSourceConversationId, setExpandedSourceConversationId] = useState("");
   const [savingLearningProfileAction, setSavingLearningProfileAction] = useState("");
+  const [teacherInsights, setTeacherInsights] = useState<TeacherClassInsightsDocument | null>(null);
+  const [teacherInsightRange, setTeacherInsightRange] = useState<TeacherInsightRange>("today");
+  const [teacherInsightNote, setTeacherInsightNote] = useState("");
+  const [isLoadingTeacherInsights, setIsLoadingTeacherInsights] = useState(false);
+  const [isGeneratingTeacherInsights, setIsGeneratingTeacherInsights] = useState(false);
+  const [savingInsightFeedback, setSavingInsightFeedback] = useState("");
   const [materialTitle, setMaterialTitle] = useState("");
   const [materialKind, setMaterialKind] = useState<TutorKnowledgeKind>("Assignment");
   const [materialFile, setMaterialFile] = useState<File | null>(null);
@@ -240,6 +370,10 @@ export function TeacherClassManager() {
   const [isClassDialogOpen, setIsClassDialogOpen] = useState(false);
   const [isStudentDialogOpen, setIsStudentDialogOpen] = useState(false);
   const [isKnowledgeDialogOpen, setIsKnowledgeDialogOpen] = useState(false);
+  const [isMaterialDetailDrawerOpen, setIsMaterialDetailDrawerOpen] = useState(false);
+  const [materialDetailsById, setMaterialDetailsById] = useState<Record<string, MaterialDetail>>({});
+  const [materialDetailLoadingId, setMaterialDetailLoadingId] = useState("");
+  const [materialDetailError, setMaterialDetailError] = useState("");
   const [deletingMaterialId, setDeletingMaterialId] = useState("");
   const isLoadingClasses = Boolean(user && loadedTeacherId !== user.uid);
 
@@ -309,6 +443,10 @@ export function TeacherClassManager() {
     filteredRosterRows.length > 0 && checkedVisibleStudentIds.length === filteredRosterRows.length;
   const someVisibleStudentsChecked = checkedVisibleStudentIds.length > 0;
   const rosterStats = useMemo(() => buildRosterStats(rosterRows), [rosterRows]);
+  const conversationReviewRows = useMemo(
+    () => buildConversationReviewRows(classConversations, activeClassId),
+    [activeClassId, classConversations]
+  );
   const visibleStudentConversations = studentConversations.filter(
     (conversation) =>
       conversation.classId === activeClassId &&
@@ -316,12 +454,83 @@ export function TeacherClassManager() {
   );
   const activeSelectedConversationId =
     selectedConversationClassId === activeClassId &&
-    visibleStudentConversations.some((conversation) => conversation.id === selectedConversationId)
+    (conversationReviewRows.some((conversation) => conversation.id === selectedConversationId) ||
+      visibleStudentConversations.some((conversation) => conversation.id === selectedConversationId))
       ? selectedConversationId
-      : visibleStudentConversations[0]?.id ?? "";
+      : activeTab === "conversations"
+        ? conversationReviewRows[0]?.id ?? visibleStudentConversations[0]?.id ?? ""
+        : visibleStudentConversations[0]?.id ?? "";
   const selectedConversation = visibleStudentConversations.find(
     (conversation) => conversation.id === activeSelectedConversationId
   );
+  const conversationStudentOptions = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          conversationReviewRows.map((conversation) => [
+            conversation.studentEmail,
+            { email: conversation.studentEmail, name: conversation.studentName }
+          ])
+        ).values()
+      ),
+    [conversationReviewRows]
+  );
+  const conversationTopicOptions = useMemo(
+    () => Array.from(new Set(conversationReviewRows.map((conversation) => conversation.topic))).filter(Boolean),
+    [conversationReviewRows]
+  );
+  const filteredConversationReviewRows = useMemo(
+    () =>
+      filterConversationReviewRows({
+        evidenceConversationIds,
+        filter: conversationFilter,
+        query: conversationSearchQuery,
+        rows: conversationReviewRows,
+        studentEmail: conversationStudentFilter,
+        topic: conversationTopicFilter
+      }),
+    [
+      conversationFilter,
+      conversationReviewRows,
+      conversationSearchQuery,
+      evidenceConversationIds,
+      conversationStudentFilter,
+      conversationTopicFilter
+    ]
+  );
+  const selectedConversationReviewRow =
+    filteredConversationReviewRows.find((conversation) => conversation.id === activeSelectedConversationId) ??
+    conversationReviewRows.find((conversation) => conversation.id === activeSelectedConversationId) ??
+    filteredConversationReviewRows[0] ??
+    conversationReviewRows[0] ??
+    null;
+  const selectedConversationRosterRow =
+    rosterRows.find((row) => row.student.id === selectedConversationReviewRow?.studentId) ??
+    rosterRows.find((row) => row.student.email.trim().toLowerCase() === selectedConversationReviewRow?.studentEmail) ??
+    null;
+  const transcriptMessages =
+    selectedConversationReviewRow?.id === activeSelectedConversationId
+      ? conversationMessages.filter((message) => message.role === "student" || message.role === "assistant")
+      : [];
+  const conversationMetrics = classConversationMetrics ?? buildConversationMetrics(conversationReviewRows, rosterRows);
+  const conversationSourceRows = buildConversationSourceRows(
+    selectedConversationReviewRow?.sourceAudit,
+    transcriptMessages,
+    materials
+  );
+  const hasSourceWarning = Boolean(selectedConversationReviewRow?.sourceAudit.noSourceUsedWarning);
+  const isSourceAuditExpanded = Boolean(
+    selectedConversationReviewRow && expandedSourceConversationId === selectedConversationReviewRow.id
+  );
+  const visibleConversationSourceRows = isSourceAuditExpanded ? conversationSourceRows : conversationSourceRows.slice(0, 3);
+  const conversationCitationCount = conversationSourceRows.reduce((sum, source) => sum + source.citationCount, 0);
+  const selectedConversationPrivateNote = selectedConversationReviewRow
+    ? conversationNotesById[selectedConversationReviewRow.id] ?? selectedConversationReviewRow.review.privateNote
+    : "";
+  const isConversationNoteHighlighted = Boolean(
+    selectedConversationReviewRow && highlightedNoteConversationId === selectedConversationReviewRow.id
+  );
+  const studentTimelineBars = buildStudentTimelineBars(selectedConversationRosterRow, conversationReviewRows);
   const displayedStudentLearningProfile =
     selectedStudentLearningProfile?.studentEmail === selectedStudent?.email.trim().toLowerCase()
       ? selectedStudentLearningProfile
@@ -344,10 +553,12 @@ export function TeacherClassManager() {
   const selectedMaterialSettings = selectedMaterial
     ? sourceSettingsByMaterialId[selectedMaterial.id] ?? defaultKnowledgeSourceSettings(selectedMaterial)
     : null;
+  const selectedMaterialDetail = selectedMaterial ? materialDetailsById[selectedMaterial.id] ?? null : null;
   const selectedClassCode = selectedClass?.joinCode ?? "";
   const selectedAnswerPolicy = normalizeAnswerPolicySettings(selectedClass?.answerPolicy);
   const selectedSourceUsage = normalizeSourceUsageSettings(selectedClass?.sourceUsage);
   const selectedModelSettings = normalizeClassModelSettings(selectedClass?.modelSettings);
+  const selectedResponseFormat = normalizeResponseFormatSettings(selectedClass?.responseFormat);
   const selectedTutorBehavior = normalizeTutorBehavior(selectedClass?.behaviorTitle);
   const displayedCreativity =
     settingsCreativityPreview?.classId === activeClassId
@@ -359,6 +570,104 @@ export function TeacherClassManager() {
   const hasTutorKnowledgeSource = Boolean(materialFile || materialText.trim());
   const accountName = profile?.displayName ?? user?.displayName ?? "Teacher";
   const accountEmail = user?.email ?? "";
+  const totalConversationCount = rosterRows.reduce((sum, row) => sum + row.conversationsCount, 0);
+  const insightsDateLabel = formatInsightsDateLabel(new Date());
+  const hasGeneratedTeacherInsights = Boolean(teacherInsights?.generatedAt);
+  const displayedInsightMetrics = hasGeneratedTeacherInsights ? teacherInsights?.insight.metrics ?? [] : [];
+  const displayedInsightSummary = hasGeneratedTeacherInsights ? teacherInsights?.insight.dailySummary : null;
+  const displayedInsightEvidenceChips =
+    hasGeneratedTeacherInsights && teacherInsights?.insight.evidenceChips.length
+      ? teacherInsights.insight.evidenceChips
+      : [];
+  const displayedInsightTrends =
+    hasGeneratedTeacherInsights && teacherInsights?.insight.trends.length
+      ? teacherInsights.insight.trends
+      : null;
+  const displayedInsightTimeline =
+    hasGeneratedTeacherInsights && teacherInsights?.insight.misconceptionTimeline.length
+      ? teacherInsights.insight.misconceptionTimeline
+      : null;
+  const displayedInsightRecommendations =
+    hasGeneratedTeacherInsights && teacherInsights?.insight.recommendations.length
+      ? teacherInsights.insight.recommendations
+      : null;
+  const displayedInsightEvidenceLinks =
+    hasGeneratedTeacherInsights && teacherInsights?.insight.evidenceLinks.length
+      ? teacherInsights.insight.evidenceLinks
+      : null;
+  const insightTrendDisplayRows = displayedInsightTrends
+    ? displayedInsightTrends.map((row) => ({
+        change: row.change,
+        conversationIds: row.evidenceConversationIds,
+        evidence: formatConversationCount(row.evidenceConversationIds.length),
+        key: row.id,
+        label: row.label,
+        points: row.sparkline,
+        tone: row.direction
+      }))
+    : [];
+  const insightTimelineDisplayRows = displayedInsightTimeline
+    ? displayedInsightTimeline.map((row) => {
+        const evidenceCount = row.evidenceConversationIds.length || row.seenInConversations;
+
+        return {
+          appeared: formatInsightDateOnly(row.firstAppeared),
+          conversationIds: row.evidenceConversationIds,
+          key: row.id,
+          misconception: row.misconception,
+          seen: formatConversationCount(evidenceCount),
+          status: capitalizeLabel(row.status)
+        };
+      })
+    : [];
+  const insightRecommendationDisplayRows = displayedInsightRecommendations
+    ? displayedInsightRecommendations.map((row) => {
+        const evidenceCount = row.evidenceConversationIds.length || row.evidenceCount;
+
+        return {
+          action: capitalizeLabel(row.action),
+          conversationIds: row.evidenceConversationIds,
+          evidence: `${evidenceCount} ${evidenceCount === 1 ? "piece" : "pieces"} of evidence`,
+          key: row.id,
+          priority: capitalizeLabel(row.priority),
+          title: row.title
+        };
+      })
+    : [];
+  const insightEvidenceDisplayRows = displayedInsightEvidenceLinks
+    ? displayedInsightEvidenceLinks.map((row) => ({
+        count: `${row.conversationCount} ${row.conversationCount === 1 ? "conversation" : "conversations"}`,
+        conversationIds: row.conversationIds,
+        initials: row.studentInitials,
+        key: row.id,
+        timestamp: formatConversationDate(row.lastSeenAt),
+        topic: row.topic
+      }))
+    : [];
+  const insightMetricValue = (metricId: string) =>
+    displayedInsightMetrics.find((metric) => metric.id === metricId)?.value ?? 0;
+  const overviewTotalStudents = classOverview?.metrics.totalStudents ?? rosterStats.totalStudents;
+  const overviewActiveStudents = classOverview?.metrics.activeNow ?? rosterStats.activeToday;
+  const overviewQuestionsToday =
+    classOverview?.metrics.questionsToday ?? rosterRows.reduce((sum, row) => sum + row.questionsToday, 0);
+  const overviewTotalConversations = classOverview?.metrics.totalConversations ?? conversationMetrics.total ?? totalConversationCount;
+  const overviewAverageQuestions = rosterStats.totalStudents ? rosterStats.averageQuestions : 0;
+  const overviewNoActivity = classOverview?.metrics.noActivity ?? rosterStats.noActivity;
+  const overviewDateLabel =
+    classOverview?.dateLabel ?? new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const overviewAverageQuestionsValue =
+    classOverview?.metrics.averageQuestionsPerStudentPerDay ?? overviewAverageQuestions;
+  const overviewKnowledgeStats = classOverview?.knowledgeStatus ?? buildOverviewKnowledgeStats(materials);
+  const overviewTopics = classOverview?.summary.topTopics ?? [];
+  const overviewSummaryTitle = classOverview?.summary.title || "Today's Summary";
+  const overviewSummaryBody =
+    classOverview?.summary.body ||
+    "No daily AI summary is available yet. It will appear after Chandra has enough recent class activity.";
+  const overviewPriorityRows = classOverview?.priorityRows ?? [];
+  const overviewRecentActivityRows = classOverview?.recentActivityRows ?? [];
+  const overviewReviewQueueRows = classOverview?.reviewQueueRows ?? [];
+  const overviewLearningProfileRows = classOverview?.learningProfileRows ?? [];
+  const overviewNextActions = classOverview?.nextActions ?? [];
 
   useEffect(() => {
     if (!selectedClass || selectedClass.joinCode) {
@@ -499,6 +808,59 @@ export function TeacherClassManager() {
   }, [activeClassId, user]);
 
   useEffect(() => {
+    if (!activeClassId || !user) {
+      return;
+    }
+
+    let isCancelled = false;
+    const loadingTimer = window.setTimeout(() => {
+      if (!isCancelled) {
+        setIsLoadingClassOverview(true);
+      }
+    }, 0);
+
+    user
+      .getIdToken()
+      .then(async (token) => {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
+        const response = await fetch(
+          apiUrl(
+            `/api/classes/${encodeURIComponent(activeClassId)}/overview?timezone=${encodeURIComponent(timezone)}`
+          ),
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        const data = (await response.json()) as { error?: string; overview?: TeacherClassOverview };
+
+        if (!response.ok || !data.overview) {
+          throw new Error(data.error ?? "Class overview load failed.");
+        }
+
+        if (!isCancelled) {
+          setClassOverview(data.overview);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setClassOverview(null);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsLoadingClassOverview(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(loadingTimer);
+    };
+  }, [activeClassId, user]);
+
+  useEffect(() => {
     if (!activeClassId || !selectedStudent || !user) {
       return;
     }
@@ -542,6 +904,64 @@ export function TeacherClassManager() {
       isCancelled = true;
     };
   }, [activeClassId, selectedStudent, user]);
+
+  useEffect(() => {
+    if (!activeClassId || !user) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    user
+      .getIdToken()
+      .then(async (token) => {
+        const response = await fetch(apiUrl(`/api/classes/${encodeURIComponent(activeClassId)}/conversations`), {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        const data = (await response.json()) as {
+          conversations?: TeacherConversationReviewSummary[];
+          error?: string;
+          metrics?: {
+            lowConfidence: number;
+            needsFollowUp: number;
+            total: number;
+            unreviewed: number;
+          };
+        };
+
+        if (!response.ok) {
+          throw new Error(data.error ?? "Class conversations load failed.");
+        }
+
+        if (!isCancelled) {
+          setClassConversations(data.conversations ?? []);
+          setClassConversationMetrics(
+            data.metrics
+              ? {
+                  followUp: data.metrics.needsFollowUp,
+                  lowConfidence: data.metrics.lowConfidence,
+                  total: data.metrics.total,
+                  unreviewed: data.metrics.unreviewed
+                }
+              : null
+          );
+          setConversationError("");
+        }
+      })
+      .catch((caughtError) => {
+        if (!isCancelled) {
+          setClassConversations([]);
+          setClassConversationMetrics(null);
+          setConversationError(formatConversationError(caughtError, "Class conversations load failed."));
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeClassId, user]);
 
   useEffect(() => {
     if (!activeClassId || !selectedStudent || !user) {
@@ -636,6 +1056,77 @@ export function TeacherClassManager() {
     };
   }, [activeClassId, activeSelectedConversationId, user]);
 
+  useEffect(() => {
+    if (activeTab !== "insights" || !activeClassId || !user) {
+      return;
+    }
+
+    let isCancelled = false;
+    const loadingTimer = window.setTimeout(() => {
+      if (!isCancelled) {
+        setIsLoadingTeacherInsights(true);
+      }
+    }, 0);
+
+    user
+      .getIdToken()
+      .then(async (token) => {
+        const response = await fetch(
+          apiUrl(
+            `/api/classes/${encodeURIComponent(activeClassId)}/insights?range=${encodeURIComponent(
+              teacherInsightRange
+            )}`
+          ),
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        const data = (await response.json()) as { error?: string; snapshot?: TeacherClassInsightsDocument };
+
+        if (!response.ok) {
+          throw new Error(data.error ?? "Teacher insights load failed.");
+        }
+
+        if (!isCancelled) {
+          setTeacherInsights(data.snapshot ?? null);
+        }
+      })
+      .catch((caughtError) => {
+        if (!isCancelled) {
+          setTeacherInsights(null);
+          setError(formatConversationError(caughtError, "Teacher insights load failed."));
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsLoadingTeacherInsights(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(loadingTimer);
+    };
+  }, [activeClassId, activeTab, teacherInsightRange, user]);
+
+  useEffect(() => {
+    if (activeTab !== "conversations" || !activeClassId || activeSelectedConversationId || !conversationReviewRows.length) {
+      return;
+    }
+
+    const firstConversation = conversationReviewRows[0];
+    const selectionTimer = window.setTimeout(() => {
+      setSelectedStudentId(firstConversation.studentId);
+      setSelectedStudentClassId(activeClassId);
+      setSelectedConversationId(firstConversation.id);
+      setSelectedConversationClassId(activeClassId);
+    }, 0);
+
+    return () => window.clearTimeout(selectionTimer);
+  }, [activeClassId, activeSelectedConversationId, activeTab, conversationReviewRows]);
+
   async function submitClass(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -694,8 +1185,15 @@ export function TeacherClassManager() {
         askClarificationIfSourceUnclear: formData.has("sourceUsage.askClarificationIfSourceUnclear"),
         preferredSourceType: normalizeSourceUsageSettings({
           preferredSourceType: String(formData.get("sourceUsage.preferredSourceType") ?? "")
-        }).preferredSourceType
+        }).preferredSourceType,
+        quoteSourcePassages: formData.has("sourceUsage.quoteSourcePassages")
       };
+      const responseFormat: ResponseFormatSettings = normalizeResponseFormatSettings({
+        oneStepAtATime: formData.has("responseFormat.oneStepAtATime"),
+        endWithCheckQuestion: formData.has("responseFormat.endWithCheckQuestion"),
+        readingLevel: String(formData.get("responseFormat.readingLevel") ?? ""),
+        mathNotation: String(formData.get("responseFormat.mathNotation") ?? "")
+      });
 
       await updateTeacherClassSettings({
         answerPolicy,
@@ -710,7 +1208,8 @@ export function TeacherClassManager() {
           responseLength: String(formData.get("modelSettings.responseLength") ?? "")
         }),
         name: String(formData.get("name") ?? ""),
-        refusalStyle: selectedClass?.refusalStyle ?? defaultRefusalStyle,
+        refusalStyle: String(formData.get("refusalStyle") ?? "").trim() || defaultRefusalStyle,
+        responseFormat,
         section: String(formData.get("section") ?? ""),
         sourceUsage
       });
@@ -820,6 +1319,81 @@ export function TeacherClassManager() {
     }
   }
 
+  async function saveConversationReview(row: ConversationReviewRow, status: ConversationReviewStatus = row.status) {
+    if (!activeClassId || !user || savingReviewConversationId) {
+      return;
+    }
+
+    const privateNote = conversationNotesById[row.id] ?? row.review.privateNote;
+
+    setSavingReviewConversationId(row.id);
+    setReviewSaveMessage(status === row.status ? "Saving note..." : "Saving review status...");
+    setError("");
+
+    try {
+      const token = await getTeacherToken();
+      const response = await fetch(
+        apiUrl(
+          `/api/classes/${encodeURIComponent(activeClassId)}/conversations/${encodeURIComponent(row.id)}/review`
+        ),
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            flags: row.review.flags,
+            privateNote,
+            status
+          })
+        }
+      );
+      const data = (await response.json()) as {
+        error?: string;
+        review?: TeacherConversationReviewSummary["review"];
+      };
+
+      if (!response.ok || !data.review) {
+        throw new Error(data.error ?? "Conversation review save failed.");
+      }
+
+      setClassConversations((currentConversations) =>
+        currentConversations.map((conversation) =>
+          conversation.id === row.id
+            ? {
+                ...conversation,
+                review: data.review!,
+                reviewStatus: data.review!.status
+              }
+            : conversation
+        )
+      );
+      setConversationNotesById((currentNotes) => ({
+        ...currentNotes,
+        [row.id]: data.review!.privateNote
+      }));
+      setReviewSaveMessage(status === row.status ? "Note saved" : `Marked ${formatConversationStatus(data.review.status)}`);
+      setClassConversationMetrics(null);
+    } catch (caughtError) {
+      setReviewSaveMessage("");
+      setError(formatClassError(caughtError, "Conversation review save failed."));
+    } finally {
+      setSavingReviewConversationId("");
+    }
+  }
+
+  function focusConversationPrivateNote() {
+    if (!selectedConversationReviewRow) {
+      return;
+    }
+
+    setHighlightedNoteConversationId(selectedConversationReviewRow.id);
+    window.setTimeout(() => {
+      document.getElementById("conversation-private-note")?.focus();
+    }, 0);
+  }
+
   async function saveLearningProfileAction(action: "approve" | "disable" | "clearDraft" | "clear") {
     if (!activeClassId || !selectedStudent || !user || savingLearningProfileAction) {
       return;
@@ -903,6 +1477,85 @@ export function TeacherClassManager() {
       setError(formatClassError(caughtError, "Learning profile update failed."));
     } finally {
       setSavingLearningProfileAction("");
+    }
+  }
+
+  async function saveInsightFeedback(action: TeacherInsightFeedbackAction, itemId = "dailySummary", note = "") {
+    if (!activeClassId || !user || savingInsightFeedback || !hasGeneratedTeacherInsights) {
+      return;
+    }
+
+    const feedbackKey = `${action}:${itemId}`;
+    setSavingInsightFeedback(feedbackKey);
+    setError("");
+
+    try {
+      const token = await getTeacherToken();
+      const response = await fetch(
+        apiUrl(`/api/classes/${encodeURIComponent(activeClassId)}/insights/feedback`),
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            action,
+            itemId,
+            note,
+            range: teacherInsightRange
+          })
+        }
+      );
+      const data = (await response.json()) as { error?: string; snapshot?: TeacherClassInsightsDocument };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Teacher insights feedback save failed.");
+      }
+
+      setTeacherInsights(data.snapshot ?? null);
+      if (action === "addNote") {
+        setTeacherInsightNote("");
+      }
+    } catch (caughtError) {
+      setError(formatClassError(caughtError, "Teacher insights feedback save failed."));
+    } finally {
+      setSavingInsightFeedback("");
+    }
+  }
+
+  async function generateTeacherInsights(force = true) {
+    if (!activeClassId || !user || isGeneratingTeacherInsights) {
+      return;
+    }
+
+    setIsGeneratingTeacherInsights(true);
+    setError("");
+
+    try {
+      const token = await getTeacherToken();
+      const response = await fetch(apiUrl(`/api/classes/${encodeURIComponent(activeClassId)}/insights`), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          force,
+          range: teacherInsightRange
+        })
+      });
+      const data = (await response.json()) as { error?: string; snapshot?: TeacherClassInsightsDocument };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Teacher insights generation failed.");
+      }
+
+      setTeacherInsights(data.snapshot ?? null);
+    } catch (caughtError) {
+      setError(formatClassError(caughtError, "Teacher insights generation failed."));
+    } finally {
+      setIsGeneratingTeacherInsights(false);
     }
   }
 
@@ -1093,6 +1746,56 @@ export function TeacherClassManager() {
     setIsKnowledgeDialogOpen(false);
   }
 
+  function openMaterialDetail(material: ClassMaterial) {
+    setSelectedMaterialId(material.id);
+    setIsMaterialDetailDrawerOpen(true);
+    void loadMaterialDetail(material.id);
+  }
+
+  function closeMaterialDetail() {
+    setIsMaterialDetailDrawerOpen(false);
+    setMaterialDetailError("");
+  }
+
+  async function loadMaterialDetail(materialId: string) {
+    if (!activeClassId || materialDetailLoadingId === materialId) {
+      return;
+    }
+
+    setMaterialDetailError("");
+    setMaterialDetailLoadingId(materialId);
+
+    try {
+      const token = await getTeacherToken();
+      const response = await fetch(
+        apiUrl(`/api/materials/${encodeURIComponent(materialId)}?classId=${encodeURIComponent(activeClassId)}`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+      const data = await response.json() as MaterialDetail & { error?: string };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Tutor knowledge detail load failed.");
+      }
+
+      setMaterialDetailsById((currentDetails) => ({
+        ...currentDetails,
+        [materialId]: {
+          materialId: data.materialId,
+          relatedTopics: data.relatedTopics ?? [],
+          sampleChunks: data.sampleChunks ?? []
+        }
+      }));
+    } catch (caughtError) {
+      setMaterialDetailError(formatClassError(caughtError, "Tutor knowledge detail load failed."));
+    } finally {
+      setMaterialDetailLoadingId("");
+    }
+  }
+
   async function updateKnowledgeSourceSetting(materialId: string, settings: Partial<KnowledgeSourceSettings>) {
     const material = materials.find((currentMaterial) => currentMaterial.id === materialId);
     const nextSettings = {
@@ -1211,6 +1914,145 @@ export function TeacherClassManager() {
     }
   }
 
+  function findOverviewRosterRow(studentName?: string, studentId?: string, studentEmail?: string) {
+    const normalizedStudentName = studentName?.trim().toLowerCase() ?? "";
+    const normalizedStudentEmail = studentEmail?.trim().toLowerCase() ?? "";
+
+    return (
+      rosterRows.find((row) => studentId && row.student.id === studentId) ??
+      rosterRows.find((row) => normalizedStudentEmail && row.student.email.trim().toLowerCase() === normalizedStudentEmail) ??
+      rosterRows.find((row) => row.student.displayName.trim().toLowerCase() === normalizedStudentName) ??
+      rosterRows.find((row) => row.student.displayName.trim().toLowerCase().includes(normalizedStudentName)) ??
+      null
+    );
+  }
+
+  function openOverviewRoster(studentName?: string, studentId?: string, studentEmail?: string) {
+    const row = studentName || studentId || studentEmail ? findOverviewRosterRow(studentName, studentId, studentEmail) : null;
+
+    if (row) {
+      setSelectedStudentId(row.student.id);
+      setSelectedStudentClassId(activeClassId);
+      setIsRosterDetailOpen(true);
+    }
+
+    setIsProfessorReviewOpen(false);
+    setActiveTab("roster");
+  }
+
+  function openOverviewStudentChats(studentName?: string, studentId?: string, studentEmail?: string) {
+    const row = findOverviewRosterRow(studentName, studentId, studentEmail);
+
+    if (row) {
+      const recentConversation = row.recentConversations.find((conversation) => conversation.id !== "empty");
+
+      setSelectedStudentId(row.student.id);
+      setSelectedStudentClassId(activeClassId);
+      setSelectedConversationId(recentConversation?.id ?? "");
+      setSelectedConversationClassId(activeClassId);
+      setIsRosterDetailOpen(true);
+    }
+
+    setIsProfessorReviewOpen(false);
+    setActiveTab("conversations");
+  }
+
+  function openOverviewConversation(title?: string, studentName?: string, conversationId?: string) {
+    const normalizedTitle = title?.trim().toLowerCase() ?? "";
+    const normalizedStudentName = studentName?.trim().toLowerCase() ?? "";
+    const conversation =
+      conversationReviewRows.find((row) => conversationId && row.id === conversationId) ??
+      conversationReviewRows.find(
+        (row) =>
+          (normalizedTitle && row.title.trim().toLowerCase().includes(normalizedTitle)) ||
+          (normalizedStudentName && row.studentName.trim().toLowerCase() === normalizedStudentName)
+      ) ?? conversationReviewRows[0] ?? null;
+
+    if (conversation) {
+      setSelectedStudentId(conversation.studentId);
+      setSelectedStudentClassId(activeClassId);
+      setSelectedConversationId(conversation.id);
+      setSelectedConversationClassId(activeClassId);
+      setIsRosterDetailOpen(true);
+    }
+
+    setIsProfessorReviewOpen(false);
+    setActiveTab("conversations");
+  }
+
+  function handleOverviewNextAction(action: NonNullable<TeacherClassOverview["nextActions"]>[number]) {
+    if (action.action === "addStudent") {
+      setIsStudentDialogOpen(true);
+      return;
+    }
+
+    if (action.action === "addKnowledge") {
+      setIsKnowledgeDialogOpen(true);
+      return;
+    }
+
+    if (action.action === "openKnowledge") {
+      setActiveTab("knowledge");
+      return;
+    }
+
+    if (action.action === "reviewConversations") {
+      openOverviewConversation(undefined, action.studentName, action.conversationId);
+      return;
+    }
+
+    if (action.action === "viewStudentChats") {
+      openOverviewStudentChats(action.studentName, action.studentId, action.studentEmail);
+      return;
+    }
+
+    if (action.action === "reviewLearningProfiles" || action.action === "openRoster") {
+      openOverviewRoster(action.studentName, action.studentId, action.studentEmail);
+      return;
+    }
+
+    if (action.action === "testRetrieval") {
+      setActiveTab("knowledge");
+      return;
+    }
+
+    if (action.action === "openInsights") {
+      setActiveTab("insights");
+    }
+  }
+
+  function openInsightEvidenceConversations(conversationIds: string[]) {
+    const ids = Array.from(new Set(conversationIds.filter(Boolean)));
+
+    if (!ids.length) {
+      return;
+    }
+
+    const firstConversation =
+      conversationReviewRows.find((conversation) => ids.includes(conversation.id)) ??
+      conversationReviewRows.find((conversation) => conversation.id === ids[0]);
+
+    setEvidenceConversationIds(ids);
+    setConversationFilter("all");
+    setConversationSearchQuery("");
+    setConversationStudentFilter("all");
+    setConversationTopicFilter("all");
+
+    if (firstConversation) {
+      setSelectedStudentId(firstConversation.studentId);
+      setSelectedStudentClassId(activeClassId);
+      setSelectedConversationId(firstConversation.id);
+      setSelectedConversationClassId(activeClassId);
+      setIsRosterDetailOpen(true);
+    } else {
+      setSelectedConversationId(ids[0] ?? "");
+      setSelectedConversationClassId(activeClassId);
+    }
+
+    setIsProfessorReviewOpen(false);
+    setActiveTab("conversations");
+  }
+
   return (
     <>
       <section className="teacher-dashboard" aria-label="Teacher dashboard">
@@ -1222,19 +2064,16 @@ export function TeacherClassManager() {
               </Link>
             </div>
 
-            <section className="teacher-sidebar-card class-list-card" aria-labelledby="classes-heading">
-              <div className="teacher-card-heading">
-                <p className="eyebrow" id="classes-heading">
-                  Classes
-                </p>
-                <button
-                  className="sidebar-create-button"
-                  type="button"
-                  onClick={() => setIsClassDialogOpen(true)}
-                >
-                  Create class
-                </button>
-              </div>
+            <button
+              className="sidebar-create-button"
+              type="button"
+              onClick={() => setIsClassDialogOpen(true)}
+            >
+              <PlusIcon />
+              Create class
+            </button>
+
+            <section className="teacher-sidebar-card class-list-card" aria-label="Classes">
               <span className="count-pill classes-total">{isLoadingClasses ? "Loading" : `${classes.length} total`}</span>
 
               <div className="teacher-class-list">
@@ -1252,6 +2091,9 @@ export function TeacherClassManager() {
                       setSelectedConversationClassId(teacherClass.id);
                       setRosterActivity([]);
                       setStudentConversations([]);
+                      setClassConversations([]);
+                      setClassConversationMetrics(null);
+                      setClassOverview(null);
                       setConversationMessages([]);
                       setConversationError("");
                       setSelectedMaterialId("");
@@ -1261,6 +2103,10 @@ export function TeacherClassManager() {
                       setIsProfessorReviewOpen(false);
                       setRosterSearchQuery("");
                       setRosterFilter("all");
+                      setConversationFilter("all");
+                      setConversationSearchQuery("");
+                      setConversationStudentFilter("all");
+                      setConversationTopicFilter("all");
                     }}
                   >
                     <span className="class-row-icon" aria-hidden="true">
@@ -1309,47 +2155,48 @@ export function TeacherClassManager() {
 
         <section className="teacher-main" aria-label="Class workspace">
           <div className="teacher-main-inner">
-            <header className="teacher-main-header">
-              <div>
-                <h1>{selectedClass ? selectedClass.name : "Create a class"}</h1>
-                <p>{selectedClass ? formatSectionLabel(selectedClass.section) : "Add your first class from the sidebar."}</p>
-              </div>
+            <div className={selectedClass ? "teacher-sticky-chrome" : undefined}>
+              <header className="teacher-main-header">
+                <div>
+                  <h1>{selectedClass ? selectedClass.name : "Create a class"}</h1>
+                  <p>{selectedClass ? formatSectionLabel(selectedClass.section) : "Add your first class from the sidebar."}</p>
+                </div>
+
+                {selectedClass ? (
+                  <div className="class-heading-actions">
+                    <span className="class-code">
+                      {/* Class code: {selectedClassCode || "Creating code..."} */}
+                      Class code: <strong>{selectedClassCode || "Creating code..."}</strong>
+                    </span>
+                    <button
+                      aria-label="Copy student invite link"
+                      className="teacher-action-button"
+                      disabled={!selectedClassCode}
+                      type="button"
+                      onClick={copyStudentInviteLink}
+                    >
+                      <LinkIcon />
+                      {inviteLinkCopyStatus === "copied"
+                        ? "Copied"
+                        : inviteLinkCopyStatus === "failed"
+                          ? "Copy failed"
+                          : "Copy invite link"}
+                    </button>
+                    <Link
+                      className="teacher-action-button"
+                      href={`/student?classId=${selectedClass.id}&preview=teacher`}
+                    >
+                      <ExternalLinkIcon />
+                      Student view
+                    </Link>
+                  </div>
+                ) : null}
+              </header>
+
+              {error ? <p className="form-error teacher-alert">{error}</p> : null}
 
               {selectedClass ? (
-	                <div className="class-heading-actions">
-	                  <span className="class-code">
-	                    Class code: {selectedClassCode || "Creating code..."}
-	                  </span>
-	                  <button
-	                    aria-label="Copy student invite link"
-	                    className="teacher-action-button"
-	                    disabled={!selectedClassCode}
-                    type="button"
-                    onClick={copyStudentInviteLink}
-                  >
-                    <LinkIcon />
-                    {inviteLinkCopyStatus === "copied"
-                      ? "Copied"
-                      : inviteLinkCopyStatus === "failed"
-                        ? "Copy failed"
-                        : "Copy invite link"}
-                  </button>
-                  <Link
-                    className="teacher-action-button"
-                    href={`/student?classId=${selectedClass.id}&preview=teacher`}
-                  >
-                    <ExternalLinkIcon />
-                    Student view
-                  </Link>
-                </div>
-              ) : null}
-            </header>
-
-            {error ? <p className="form-error teacher-alert">{error}</p> : null}
-
-            {selectedClass ? (
-              <>
-                <div className="tab-list" role="tablist" aria-label="Class editor sections">
+                <div className="tab-list teacher-tab-list" role="tablist" aria-label="Class editor sections">
                   {teacherTabs.map((tab) => (
                     <button
                       aria-selected={activeTab === tab.id}
@@ -1362,7 +2209,11 @@ export function TeacherClassManager() {
                     </button>
                   ))}
                 </div>
+              ) : null}
+            </div>
 
+            {selectedClass ? (
+              <>
                 {isLoadingClassDetails ? (
                   <div className="empty-state detail-loading">
                     <strong>Loading class details</strong>
@@ -1370,11 +2221,563 @@ export function TeacherClassManager() {
                   </div>
                 ) : null}
 
+                {activeTab === "overview" ? (
+                  <div className="overview-workspace teacher-content-block" role="tabpanel" aria-busy={isLoadingClassOverview}>
+                    <div className="overview-heading-row">
+                      <div className="overview-title-block">
+                        <h2>Today&apos;s Teacher Dashboard</h2>
+                        <span>What needs attention in {selectedClass.name} right now.</span>
+                      </div>
+                      <button className="overview-date-button" aria-pressed="false" type="button">
+                        <CalendarIcon />
+                        {overviewDateLabel}
+                        <ChevronDownIcon />
+                      </button>
+                    </div>
+
+                    <div className="overview-metric-grid" aria-label="Today overview metrics">
+                      <OverviewMetricCard icon={<UserGroupIcon />} label="Total students" value={String(overviewTotalStudents)} />
+                      <OverviewMetricCard icon={<CircleIcon />} isTinted label="Active now" value={String(overviewActiveStudents)} />
+                      <OverviewMetricCard icon={<ChatIcon />} isTinted label="Questions today" value={String(overviewQuestionsToday)} />
+                      <OverviewMetricCard icon={<ChatIcon />} label="Total conversations" value={String(overviewTotalConversations)} />
+                      <OverviewMetricCard
+                        icon={<TrendLineIcon />}
+                        label="Avg questions / student"
+                        value={formatStatNumber(overviewAverageQuestionsValue)}
+                      />
+                      <OverviewMetricCard icon={<UserIcon />} label="No activity" value={String(overviewNoActivity)} />
+                    </div>
+
+                    <div className="overview-grid">
+                      <div className="overview-column">
+                        <section className="overview-panel summary-panel" aria-labelledby="overview-summary-title">
+                          <h3 id="overview-summary-title">{overviewSummaryTitle}</h3>
+                          <p>{overviewSummaryBody}</p>
+                          <div className="overview-topic-list" aria-label="Recent topics">
+                            {overviewTopics.map((topic) => (
+                              <span key={topic}>{topic}</span>
+                            ))}
+                            {!overviewTopics.length ? <span>No topics yet</span> : null}
+                          </div>
+                        </section>
+
+                        <section className="overview-panel" aria-labelledby="overview-priority-title">
+                          <h3 id="overview-priority-title">Needs Attention</h3>
+                          <div className="priority-row-list" role="table" aria-label="Students needing attention">
+                            {overviewPriorityRows.map((row) => (
+                              <div className="priority-row" key={row.id} role="row">
+                                <span className={`overview-row-icon ${row.tone}`} aria-hidden="true">
+                                  {row.tone === "high" ? <StrugglingTopicsIcon /> : row.tone === "note" ? <NoteIcon /> : <CircleIcon />}
+                                </span>
+                                <strong role="cell">{row.studentName}</strong>
+                                <span className={`overview-status-pill ${row.tone}`} role="cell">
+                                  {row.status}
+                                </span>
+                                <span className="overview-row-copy" role="cell">{row.issue}</span>
+                                <button
+                                  className="overview-small-action"
+                                  type="button"
+                                  onClick={() =>
+                                    row.action === "viewChats"
+                                      ? openOverviewStudentChats(row.studentName, row.studentId, row.studentEmail)
+                                      : openOverviewRoster(row.studentName, row.studentId, row.studentEmail)
+                                  }
+                                >
+                                  {row.actionLabel}
+                                </button>
+                              </div>
+                            ))}
+                            {!overviewPriorityRows.length ? (
+                              <div className="empty-state overview-empty-state">
+                                <strong>No priority items</strong>
+                                <span>Students needing attention will appear here.</span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </section>
+
+                        <section className="overview-panel" aria-labelledby="overview-activity-title">
+                          <h3 id="overview-activity-title">Recent Activity</h3>
+                          <div className="recent-activity-list" role="table" aria-label="Recent student activity">
+                            {overviewRecentActivityRows.map((row) => (
+                              <div className="recent-activity-row" key={row.id} role="row">
+                                <span className="overview-row-icon chat" aria-hidden="true">
+                                  <ChatIcon />
+                                </span>
+                                <strong role="cell">{row.studentName}</strong>
+                                <span role="cell">{row.title}</span>
+                                <span role="cell">{row.messageCount} messages</span>
+                                <time role="cell">{row.lastMessageLabel}</time>
+                              </div>
+                            ))}
+                            {!overviewRecentActivityRows.length ? (
+                              <div className="empty-state overview-empty-state">
+                                <strong>No recent activity</strong>
+                                <span>Saved student chats will appear here.</span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </section>
+                      </div>
+
+                      <div className="overview-column">
+                        <section className="overview-panel" aria-labelledby="overview-review-title">
+                          <h3 id="overview-review-title">Conversation Review Queue</h3>
+                          <div className="review-queue-list" role="table" aria-label="Conversation review queue">
+                            {overviewReviewQueueRows.map((row) => (
+                              <button
+                                className="review-queue-row"
+                                key={row.id}
+                                role="row"
+                                type="button"
+                                onClick={() => openOverviewConversation(row.title, row.studentName, row.conversationId)}
+                              >
+                                <span className="overview-row-icon chat" aria-hidden="true">
+                                  <ChatIcon />
+                                </span>
+                                <strong role="cell">{row.title}</strong>
+                                <span role="cell">{row.studentName}</span>
+                                <span className={`overview-status-pill ${row.tone}`} role="cell">
+                                  {row.status}
+                                </span>
+                                <span className="overview-row-copy" role="cell">{row.meta}</span>
+                                <span className="row-chevron" aria-hidden="true">
+                                  <ChevronRightIcon />
+                                </span>
+                              </button>
+                            ))}
+                            {!overviewReviewQueueRows.length ? (
+                              <div className="empty-state overview-empty-state">
+                                <strong>No review queue</strong>
+                                <span>Conversations needing review will appear here.</span>
+                              </div>
+                            ) : null}
+                          </div>
+                          <button
+                            className="overview-review-button"
+                            type="button"
+                            onClick={() => openOverviewConversation()}
+                          >
+                            Review in Conversations
+                          </button>
+                        </section>
+
+                        <section className="overview-panel" aria-labelledby="overview-profiles-title">
+                          <h3 id="overview-profiles-title">Learning Profile Queue</h3>
+                          <div className="profile-queue-list" role="table" aria-label="Learning profile queue">
+                            {overviewLearningProfileRows.map((row) => (
+                              <div className="profile-queue-row" key={row.id} role="row">
+                                <strong role="cell">{row.studentName}</strong>
+                                <span className={`overview-status-pill ${row.tone}`} role="cell">
+                                  {row.status}
+                                </span>
+                                <span className="overview-row-copy" role="cell">{row.meta}</span>
+                                <button
+                                  className="overview-small-action"
+                                  type="button"
+                                  onClick={() => openOverviewRoster(row.studentName, row.studentId, row.studentEmail)}
+                                >
+                                  Review profile
+                                </button>
+                              </div>
+                            ))}
+                            {!overviewLearningProfileRows.length ? (
+                              <div className="empty-state overview-empty-state">
+                                <strong>No learning profiles</strong>
+                                <span>Add students and conversations to build profile queues.</span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </section>
+
+                        <section className="overview-panel knowledge-status-panel" aria-labelledby="overview-knowledge-title">
+                          <div className="overview-panel-heading">
+                            <div>
+                              <h3 id="overview-knowledge-title">Knowledge Status</h3>
+                            </div>
+                            <div className="knowledge-status-actions">
+                              <button
+                                className="overview-filled-action"
+                                type="button"
+                                onClick={() => setIsKnowledgeDialogOpen(true)}
+                              >
+                                Add knowledge
+                              </button>
+                              <button
+                                className="overview-small-action"
+                                type="button"
+                                onClick={() => setActiveTab("knowledge")}
+                              >
+                                Test retrieval
+                              </button>
+                            </div>
+                          </div>
+                          <div className="knowledge-status-strip" aria-label="Knowledge source status">
+                            {overviewKnowledgeStats.map((stat) => (
+                              <span className={stat.tone} key={stat.label}>
+                                <strong>{stat.value}</strong>
+                                <small>{stat.label}</small>
+                              </span>
+                            ))}
+                          </div>
+                        </section>
+
+                        <section className="overview-panel" aria-labelledby="overview-next-title">
+                          <h3 id="overview-next-title">Recommended Next Actions</h3>
+                          <div className="next-action-grid">
+                            {overviewNextActions.map((action) =>
+                              action.action === "openStudentView" ? (
+                                <Link
+                                  className="next-action-tile"
+                                  href={`/student?classId=${selectedClass.id}&preview=teacher`}
+                                  key={action.id}
+                                >
+                                  <span aria-hidden="true">
+                                    {overviewNextActionIcon(action.action)}
+                                  </span>
+                                  <span className="next-action-copy">
+                                    <strong>{action.label}</strong>
+                                    <small>{action.detail}</small>
+                                  </span>
+                                  <ChevronRightIcon />
+                                </Link>
+                              ) : (
+                                <button
+                                  className="next-action-tile"
+                                  key={action.id}
+                                  type="button"
+                                  onClick={() => handleOverviewNextAction(action)}
+                                >
+                                  <span aria-hidden="true">
+                                    {overviewNextActionIcon(action.action)}
+                                  </span>
+                                  <span className="next-action-copy">
+                                    <strong>{action.label}</strong>
+                                    <small>{action.detail}</small>
+                                  </span>
+                                  <ChevronRightIcon />
+                                </button>
+                              )
+                            )}
+                            {!overviewNextActions.length ? (
+                              <div className="empty-state overview-empty-state">
+                                <strong>No next actions</strong>
+                                <span>Recommended actions will appear as class activity changes.</span>
+                              </div>
+                            ) : null}
+                          </div>
+                        </section>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeTab === "insights" ? (
+                  <div className="insights-workspace teacher-content-block" role="tabpanel">
+                    <div className="insights-heading-row">
+                      <div className="insights-title-block">
+                        <h2>Teaching Intelligence</h2>
+                        <span>
+                          Daily patterns, misconceptions, and recommended follow-ups for {selectedClass.name}.
+                        </span>
+                      </div>
+                      <div className="insights-controls" aria-label="Insight date and range controls">
+                        <button className="insights-date-button" type="button">
+                          <CalendarIcon />
+                          {insightsDateLabel}
+                          <ChevronDownIcon />
+                        </button>
+                        <button
+                          className="insights-generate-button"
+                          disabled={isGeneratingTeacherInsights}
+                          onClick={() => generateTeacherInsights(true)}
+                          type="button"
+                        >
+                          {isGeneratingTeacherInsights ? "Generating..." : hasGeneratedTeacherInsights ? "Regenerate" : "Generate"}
+                        </button>
+                        <div className="insights-time-filters" aria-label="Insight time range">
+                          {insightTimeFilters.map((filter) => (
+                            <button
+                              aria-pressed={filter.range === teacherInsightRange}
+                              key={filter.range}
+                              onClick={() => setTeacherInsightRange(filter.range)}
+                              type="button"
+                            >
+                              {filter.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="insight-metric-grid" aria-label="Insight metrics">
+                      <InsightMetricCard
+                        icon={<ChatIcon />}
+                        label="conversations analyzed"
+                        tone="teal"
+                        value={String(insightMetricValue("conversationsAnalyzed"))}
+                      />
+                      <InsightMetricCard
+                        icon={<UserIcon />}
+                        label="students active"
+                        tone="teal"
+                        value={String(insightMetricValue("studentsActive"))}
+                      />
+                      <InsightMetricCard
+                        icon={<StrugglingTopicsIcon />}
+                        label="emerging misconceptions"
+                        tone="orange"
+                        value={String(insightMetricValue("emergingMisconceptions"))}
+                      />
+                      <InsightMetricCard
+                        icon={<LinkIcon />}
+                        label="evidence links"
+                        tone="teal"
+                        value={String(insightMetricValue("evidenceLinks"))}
+                      />
+                      <InsightMetricCard
+                        icon={<LightbulbIcon />}
+                        label="recommendations"
+                        tone="gold"
+                        value={String(insightMetricValue("recommendations"))}
+                      />
+                    </div>
+
+                    <div className="insights-grid">
+                      <div className="insights-column">
+                        <section className="insights-panel daily-summary-panel" aria-labelledby="daily-summary-title">
+                          <div className="daily-summary-header">
+                            <div>
+                              <h3 id="daily-summary-title">
+                                {displayedInsightSummary?.title || "No insight generated yet"}
+                              </h3>
+                            </div>
+                            <InsightFeedbackActions
+                              disabled={Boolean(savingInsightFeedback) || !hasGeneratedTeacherInsights}
+                              itemId="dailySummary"
+                              onAction={saveInsightFeedback}
+                            />
+                          </div>
+                          <p>
+                            {displayedInsightSummary?.body ||
+                              "Generate a class insight snapshot to summarize recent student conversations for this range."}
+                          </p>
+                          <div className="insight-evidence-chip-list" aria-label="Summary evidence">
+                            {displayedInsightEvidenceChips.map((chip) => (
+                                <button
+                                  className="insight-evidence-chip"
+                                  disabled={!chip.conversationId}
+                                  key={chip.id}
+                                  onClick={() => openInsightEvidenceConversations([chip.conversationId])}
+                                  type="button"
+                                >
+                                  {chip.label}
+                                  <ExternalLinkIcon />
+                                </button>
+                            ))}
+                          </div>
+                        </section>
+
+                        <section className="insights-panel" aria-labelledby="trends-title">
+                          <h3 id="trends-title">Trends Over Time</h3>
+                          <div className="insights-table trends-table" role="table" aria-label="Trends over time">
+                            <div className="insights-table-header trend-row" role="row">
+                              <span role="columnheader">Trend</span>
+                              <span role="columnheader">Change</span>
+                              <span role="columnheader">Evidence</span>
+                            </div>
+                            {insightTrendDisplayRows.length ? insightTrendDisplayRows.map((row) => (
+                              <div className="trend-row" key={row.key} role="row">
+                                <span className="trend-name-cell" role="cell">
+                                  <TrendIcon tone={row.tone} />
+                                  <span>
+                                    <strong>{row.label}</strong>
+                                    <small>{row.change}</small>
+                                  </span>
+                                </span>
+                                <span role="cell">
+                                  <InsightSparkline points={row.points} tone={row.tone} />
+                                </span>
+                                <button
+                                  className="insight-link-button"
+                                  disabled={!row.conversationIds.length}
+                                  onClick={() => openInsightEvidenceConversations(row.conversationIds)}
+                                  role="cell"
+                                  type="button"
+                                >
+                                  {row.evidence}
+                                </button>
+                              </div>
+                            )) : (
+                              <div className="insight-empty-row" role="row">
+                                Generate insights to see class-level trends.
+                              </div>
+                            )}
+                          </div>
+                        </section>
+
+                        <section className="insights-panel" aria-labelledby="timeline-title">
+                          <h3 id="timeline-title">Misconception Timeline</h3>
+                          <div className="insights-table timeline-table" role="table" aria-label="Misconception timeline">
+                            <div className="insights-table-header timeline-row" role="row">
+                              <span role="columnheader">Misconception</span>
+                              <span role="columnheader">First appeared</span>
+                              <span role="columnheader">Seen in conversations</span>
+                              <span role="columnheader">Status</span>
+                            </div>
+                            {insightTimelineDisplayRows.length ? insightTimelineDisplayRows.map((row) => (
+                              <div className="timeline-row" key={row.key} role="row">
+                                <strong role="cell">{row.misconception}</strong>
+                                <span role="cell">{row.appeared}</span>
+                                <span role="cell">{row.seen}</span>
+                                <span role="cell">
+                                  <span className={`insight-status-pill ${row.status.toLowerCase()}`}>
+                                    {row.status}
+                                  </span>
+                                </span>
+                              </div>
+                            )) : (
+                              <div className="insight-empty-row" role="row">
+                                No misconceptions have been generated for this range.
+                              </div>
+                            )}
+                          </div>
+                        </section>
+                      </div>
+
+                      <div className="insights-column">
+                        <section className="insights-panel recommendations-panel" aria-labelledby="recommendations-title">
+                          <h3 id="recommendations-title">Teaching Recommendations</h3>
+                          <div className="recommendation-list">
+                            {insightRecommendationDisplayRows.length ? insightRecommendationDisplayRows.map((row) => (
+                              <article className="recommendation-row" key={row.key}>
+                                <span className={`priority-pill ${row.priority.toLowerCase()}`}>{row.priority}</span>
+                                <span className="recommendation-copy">
+                                  <strong>{row.title}</strong>
+                                  <button
+                                    className="recommendation-evidence-link"
+                                    disabled={!row.conversationIds.length}
+                                    onClick={() => openInsightEvidenceConversations(row.conversationIds)}
+                                    type="button"
+                                  >
+                                    {row.evidence}
+                                  </button>
+                                </span>
+                                <button className="recommendation-action" type="button">
+                                  {row.action}
+                                </button>
+                                <span className="recommendation-icon-actions">
+                                  <button
+                                    aria-label={`Mark ${row.title} useful`}
+                                    disabled={Boolean(savingInsightFeedback) || !hasGeneratedTeacherInsights}
+                                    onClick={() => saveInsightFeedback("useful", row.key)}
+                                    type="button"
+                                  >
+                                    <ThumbUpIcon />
+                                  </button>
+                                  <button
+                                    aria-label={`Mark ${row.title} not useful`}
+                                    disabled={Boolean(savingInsightFeedback) || !hasGeneratedTeacherInsights}
+                                    onClick={() => saveInsightFeedback("notUseful", row.key)}
+                                    type="button"
+                                  >
+                                    <ThumbDownIcon />
+                                  </button>
+                                  <button
+                                    aria-label={`Dismiss ${row.title}`}
+                                    disabled={Boolean(savingInsightFeedback) || !hasGeneratedTeacherInsights}
+                                    onClick={() => saveInsightFeedback("dismiss", row.key)}
+                                    type="button"
+                                  >
+                                    <CloseIcon />
+                                  </button>
+                                </span>
+                              </article>
+                            )) : (
+                              <div className="insight-empty-card">
+                                No teaching recommendations have been generated for this range.
+                              </div>
+                            )}
+                          </div>
+                        </section>
+
+                        <section className="insights-panel" aria-labelledby="evidence-title">
+                          <h3 id="evidence-title">Evidence Links</h3>
+                          <div className="insights-table evidence-table" role="table" aria-label="Evidence links">
+                            {insightEvidenceDisplayRows.length ? insightEvidenceDisplayRows.map((row) => (
+                              <div className="evidence-row" key={row.key} role="row">
+                                <strong role="cell">{row.topic}</strong>
+                                <span role="cell">{row.count}</span>
+                                <span className="initials-pill-list" role="cell">
+                                  {row.initials.map((initial) => (
+                                    <span className="initials-pill" key={`${row.topic}-${initial}`}>
+                                      {initial}
+                                    </span>
+                                  ))}
+                                </span>
+                                <span role="cell">{row.timestamp}</span>
+                                <button
+                                  className="insight-link-button"
+                                  disabled={!row.conversationIds.length}
+                                  onClick={() => openInsightEvidenceConversations(row.conversationIds)}
+                                  role="cell"
+                                  type="button"
+                                >
+                                  View evidence
+                                </button>
+                              </div>
+                            )) : (
+                              <div className="insight-empty-row" role="row">
+                                No evidence links have been generated for this range.
+                              </div>
+                            )}
+                          </div>
+                        </section>
+
+                        <section className="insights-panel feedback-panel" aria-labelledby="teacher-feedback-title">
+                          <h3 id="teacher-feedback-title">Teacher Feedback</h3>
+                          <p>
+                            {isLoadingTeacherInsights
+                              ? "Loading the latest saved insight snapshot."
+                              : hasGeneratedTeacherInsights
+                                ? "Feedback is saved with this snapshot and included the next time insights are regenerated."
+                                : "Generate an insight snapshot before saving feedback."}
+                          </p>
+                          <InsightFeedbackActions
+                            disabled={Boolean(savingInsightFeedback) || !hasGeneratedTeacherInsights}
+                            itemId="overall"
+                            onAction={saveInsightFeedback}
+                          />
+                          <label className="sr-only" htmlFor="teacher-feedback-note">
+                            Teacher feedback note
+                          </label>
+                          <textarea
+                            id="teacher-feedback-note"
+                            onChange={(event) => setTeacherInsightNote(event.target.value)}
+                            placeholder="Tell Chandra what matters for this class..."
+                            rows={3}
+                            value={teacherInsightNote}
+                          />
+                          <button
+                            className="feedback-save-button"
+                            disabled={
+                              Boolean(savingInsightFeedback) || !teacherInsightNote.trim() || !hasGeneratedTeacherInsights
+                            }
+                            onClick={() => saveInsightFeedback("addNote", "overall", teacherInsightNote)}
+                            type="button"
+                          >
+                            {savingInsightFeedback === "addNote:overall" ? "Saving..." : "Save feedback"}
+                          </button>
+                        </section>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 {activeTab === "settings" ? (
                   <form className="class-settings-form settings-workspace" key={selectedClass.id} onSubmit={submitSettings}>
                     <div className="teacher-section-heading settings-page-heading">
                       <div>
-                        <p className="eyebrow">AI Behavior</p>
                         <h2>Guidance settings</h2>
                         <span>Control how Chandra helps students in this class</span>
                       </div>
@@ -1465,6 +2868,17 @@ export function TeacherClassManager() {
                           </div>
                         </section>
 
+                        <section className="settings-card" aria-labelledby="settings-refusal-style">
+                          <h3 id="settings-refusal-style">Direct-answer Redirect</h3>
+                          <p>Tell Chandra how to respond when students ask for answers only.</p>
+                          <textarea
+                            id="refusal-style"
+                            name="refusalStyle"
+                            rows={5}
+                            defaultValue={selectedClass.refusalStyle ?? defaultRefusalStyle}
+                          />
+                        </section>
+
                         <section className="settings-card" aria-labelledby="settings-model">
                           <h3 id="settings-model">Model Settings</h3>
                           <p>Configure the AI model and response style.</p>
@@ -1532,6 +2946,51 @@ export function TeacherClassManager() {
                       </div>
 
                       <div className="settings-column">
+                        <section className="settings-card" aria-labelledby="settings-response-format">
+                          <h3 id="settings-response-format">Response Format</h3>
+                          <p>Control the structure and reading style of normal tutoring replies.</p>
+                          <div className="settings-toggle-list">
+                            {responseFormatSettings.map((setting) => (
+                              <SettingsToggle
+                                defaultChecked={selectedResponseFormat[setting.id]}
+                                key={setting.title}
+                                name={`responseFormat.${setting.id}`}
+                                {...setting}
+                              />
+                            ))}
+                          </div>
+
+                          <label className="settings-control-label" htmlFor="reading-level">
+                            Reading level
+                          </label>
+                          <select
+                            id="reading-level"
+                            name="responseFormat.readingLevel"
+                            defaultValue={selectedResponseFormat.readingLevel}
+                          >
+                            {readingLevelOptions.map((readingLevel) => (
+                              <option key={readingLevel} value={readingLevel}>
+                                {capitalizeLabel(readingLevel)}
+                              </option>
+                            ))}
+                          </select>
+
+                          <label className="settings-control-label" htmlFor="math-notation">
+                            Math notation
+                          </label>
+                          <select
+                            id="math-notation"
+                            name="responseFormat.mathNotation"
+                            defaultValue={selectedResponseFormat.mathNotation}
+                          >
+                            {mathNotationOptions.map((notation) => (
+                              <option key={notation} value={notation}>
+                                {formatMathNotationLabel(notation)}
+                              </option>
+                            ))}
+                          </select>
+                        </section>
+
                         <section className="settings-card" aria-labelledby="settings-source-usage">
                           <h3 id="settings-source-usage">Source Usage</h3>
                           <p>Control how Chandra uses class materials.</p>
@@ -1584,7 +3043,6 @@ export function TeacherClassManager() {
                             Back to roster
                           </button>
                           <div className="professor-student-summary">
-                            <p className="eyebrow">Student</p>
                             <h3>{selectedStudent.displayName}</h3>
                             <span>{selectedStudent.email}</span>
                           </div>
@@ -1621,7 +3079,6 @@ export function TeacherClassManager() {
                         <section className="professor-chat-panel" aria-label="Saved transcript">
                           <div className="professor-chat-heading">
                             <div>
-                              <p className="eyebrow">Professor view</p>
                               <h3>{selectedConversation?.title ?? "No conversation selected"}</h3>
                             </div>
                             {selectedConversation ? (
@@ -1662,7 +3119,6 @@ export function TeacherClassManager() {
                       <div className="roster-dashboard">
                         <div className="teacher-section-heading roster-heading">
                           <div>
-                            <p className="eyebrow">Roster</p>
                             <h2>Students</h2>
                             <span>Manage student activity and support needs</span>
                           </div>
@@ -1677,7 +3133,7 @@ export function TeacherClassManager() {
 
                         <div className="roster-stats-grid" aria-label="Roster summary">
                           <RosterStatCard label="Total students" value={String(rosterStats.totalStudents)} />
-                          <RosterStatCard label="Active today" tone="positive" value={String(rosterStats.activeToday)} />
+                          <RosterStatCard label="Active now" tone="positive" value={String(rosterStats.activeToday)} />
                           <RosterStatCard label="Avg questions/student" value={`${formatStatNumber(rosterStats.averageQuestions)}/day`} />
                           <RosterStatCard label="No activity" value={String(rosterStats.noActivity)} />
                         </div>
@@ -1742,8 +3198,7 @@ export function TeacherClassManager() {
                               <div className="roster-table-header" role="row">
                                 <span aria-hidden="true" />
                                 <span>Student</span>
-                                <span>Status</span>
-                                <span>Last active</span>
+                                <span>Activity</span>
                                 <span>Questions asked</span>
                                 <span>Last chat topic</span>
                                 <span>Conversations</span>
@@ -1790,10 +3245,10 @@ export function TeacherClassManager() {
                                       <strong>{row.student.displayName}</strong>
                                       <span>{row.student.email}</span>
                                     </span>
-                                    <span className="roster-cell" role="cell">
+                                    <span className="roster-cell roster-activity-cell" role="cell">
                                       <span className={`roster-status-pill ${row.statusTone}`}>{row.status}</span>
+                                      <span>{row.lastActive}</span>
                                     </span>
-                                    <span className="roster-cell" role="cell">{row.lastActive}</span>
                                     <span className="roster-cell" role="cell">{row.questionsLabel}</span>
                                     <span className="roster-cell" role="cell">{row.lastChatTopic}</span>
                                     <span className="roster-cell" role="cell">{row.conversationsLabel}</span>
@@ -2015,7 +3470,6 @@ export function TeacherClassManager() {
                   <div className="knowledge-workspace teacher-content-block">
                     <div className="teacher-section-heading">
                       <div>
-                        <p className="eyebrow">Knowledge sources</p>
                         <h2>Tutor Knowledge</h2>
                         <span>Manage the materials Chandra can use when helping students</span>
                       </div>
@@ -2073,7 +3527,7 @@ export function TeacherClassManager() {
                                   className="knowledge-source-cell knowledge-source-title"
                                   role="cell"
                                   type="button"
-                                  onClick={() => setSelectedMaterialId(material.id)}
+                                  onClick={() => openMaterialDetail(material)}
                                 >
                                   <span className="material-icon" aria-hidden="true">
                                     <KnowledgeSourceIcon kind={material.kind} />
@@ -2102,10 +3556,7 @@ export function TeacherClassManager() {
                                     className="knowledge-icon-button"
                                     title="View source details"
                                     type="button"
-                                    onClick={() => {
-                                      setSelectedMaterialId(material.id);
-                                      window.alert("Source preview is intentionally omitted for now.");
-                                    }}
+                                    onClick={() => openMaterialDetail(material)}
                                   >
                                     <EyeIcon />
                                   </button>
@@ -2285,6 +3736,471 @@ export function TeacherClassManager() {
                     </div>
                   </div>
                 ) : null}
+
+                {activeTab === "conversations" ? (
+                  <div className="conversation-review-page teacher-content-block">
+                    <div className="teacher-section-heading conversation-review-heading">
+                      <div>
+                        <h2>Conversation Review Center</h2>
+                        <span>
+                          Review student chats, source usage, and follow-up opportunities across {selectedClass.name}.
+                        </span>
+                      </div>
+                    </div>
+
+                    {conversationError ? <p className="form-error">{conversationError}</p> : null}
+
+                    <div className="conversation-metric-grid" aria-label="Conversation summary">
+                      <ConversationMetricCard
+                        icon={<ChatIcon />}
+                        label="conversations"
+                        tone="teal"
+                        value={String(conversationMetrics.total)}
+                      />
+                      <ConversationMetricCard
+                        icon={<CircleIcon />}
+                        label="unreviewed"
+                        tone="gold"
+                        value={String(conversationMetrics.unreviewed)}
+                      />
+                      <ConversationMetricCard
+                        icon={<StrugglingTopicsIcon />}
+                        label="need follow-up"
+                        tone="orange"
+                        value={String(conversationMetrics.followUp)}
+                      />
+                      <ConversationMetricCard
+                        icon={<LowConfidenceIcon />}
+                        label="low confidence"
+                        tone="orange"
+                        value={String(conversationMetrics.lowConfidence)}
+                      />
+                    </div>
+
+                    <div className="conversation-filter-stack">
+                      <div className="conversation-chip-list" aria-label="Filter conversations">
+                        {conversationFilters.map((filter) => (
+                          <button
+                            aria-pressed={conversationFilter === filter.id}
+                            key={filter.id}
+                            type="button"
+                            onClick={() => setConversationFilter(filter.id)}
+                          >
+                            {filter.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="conversation-control-row">
+                        <label className="sr-only" htmlFor="conversation-student-filter">
+                          Filter by student
+                        </label>
+                        <select
+                          id="conversation-student-filter"
+                          value={conversationStudentFilter}
+                          onChange={(event) => setConversationStudentFilter(event.target.value)}
+                        >
+                          <option value="all">By student</option>
+                          {conversationStudentOptions.map((studentOption) => (
+                            <option key={studentOption.email} value={studentOption.email}>
+                              {studentOption.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <label className="sr-only" htmlFor="conversation-topic-filter">
+                          Filter by topic
+                        </label>
+                        <select
+                          id="conversation-topic-filter"
+                          value={conversationTopicFilter}
+                          onChange={(event) => setConversationTopicFilter(event.target.value)}
+                        >
+                          <option value="all">By topic</option>
+                          {conversationTopicOptions.map((topic) => (
+                            <option key={topic} value={topic}>
+                              {topic}
+                            </option>
+                          ))}
+                        </select>
+
+                        <label className="conversation-search" htmlFor="conversation-search-input">
+                          <SearchIcon />
+                          <input
+                            id="conversation-search-input"
+                            placeholder="Search conversations"
+                            type="search"
+                            value={conversationSearchQuery}
+                            onChange={(event) => setConversationSearchQuery(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                      {evidenceConversationIds.length ? (
+                        <div className="conversation-evidence-filter">
+                          <span>{formatConversationCount(evidenceConversationIds.length)} from selected insight evidence</span>
+                          <button type="button" onClick={() => setEvidenceConversationIds([])}>
+                            Clear evidence filter
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="conversation-review-grid">
+                      <section className="conversation-inbox-panel" aria-label="Conversation Inbox">
+                        <div className="conversation-panel-heading">
+                          <h3>Conversation Inbox</h3>
+                        </div>
+                        <div className="conversation-inbox-table" aria-label="Conversation summaries">
+                          {filteredConversationReviewRows.map((conversation) => (
+                            <button
+                              aria-pressed={conversation.id === selectedConversationReviewRow?.id}
+                              className="conversation-inbox-row"
+                              key={conversation.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentId(conversation.studentId);
+                                setSelectedStudentClassId(activeClassId);
+                                setSelectedConversationId(conversation.id);
+                                setSelectedConversationClassId(activeClassId);
+                                setIsRosterDetailOpen(true);
+                                setIsProfessorReviewOpen(false);
+                              }}
+                            >
+                              <span className="conversation-inbox-primary">
+                                <strong>{conversation.title}</strong>
+                                <span className={`conversation-status-pill ${conversationStatusClass(conversation.status)}`}>
+                                  {formatConversationStatus(conversation.status)}
+                                </span>
+                              </span>
+                              <span className="conversation-inbox-meta">
+                                <span>
+                                  <em>Student</em>
+                                  {conversation.studentName}
+                                </span>
+                                <span>
+                                  <em>Last</em>
+                                  {conversation.lastMessageLabel}
+                                </span>
+                                <span>
+                                  <em>Messages</em>
+                                  {conversation.messageCount}
+                                </span>
+                                <span>
+                                  <em>Topic</em>
+                                  {conversation.topic}
+                                </span>
+                              </span>
+                            </button>
+                          ))}
+
+                          {!filteredConversationReviewRows.length ? (
+                            <div className="empty-state conversation-empty-state">
+                              <strong>No matching conversations</strong>
+                              <span>Saved student chats will appear here after students use Chandra.</span>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="conversation-panel-footer">
+                          {filteredConversationReviewRows.length
+                            ? `Showing 1-${filteredConversationReviewRows.length} of ${conversationReviewRows.length} conversations`
+                            : `Showing 0 of ${conversationReviewRows.length} conversations`}
+                        </div>
+                      </section>
+
+                      <section className="transcript-viewer-panel" aria-label="Transcript Viewer">
+                        <div className="transcript-header">
+                          <div>
+                            <p>Transcript Viewer</p>
+                            <h3>{selectedConversationReviewRow?.title ?? "No conversation selected"}</h3>
+                            <span>
+                              {selectedConversationReviewRow
+                                ? `${selectedConversationReviewRow.studentName} / Last active ${selectedConversationReviewRow.lastMessageLabel}`
+                                : "Select a conversation to review the saved transcript."}
+                            </span>
+                          </div>
+                          <div className="transcript-header-actions">
+                            <button
+                              disabled={!selectedConversationReviewRow}
+                              type="button"
+                              onClick={() => {
+                                if (!selectedConversationReviewRow) {
+                                  return;
+                                }
+                                setSelectedStudentId(selectedConversationReviewRow.studentId);
+                                setSelectedStudentClassId(activeClassId);
+                                setActiveTab("roster");
+                              }}
+                            >
+                              Open student profile
+                            </button>
+                            <button disabled={!selectedConversationReviewRow} type="button" onClick={focusConversationPrivateNote}>
+                              Add teacher note
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="transcript-chip-row">
+                          <span>Model: {selectedConversationReviewRow?.modelId || selectedConversation?.modelId || "Not recorded"}</span>
+                          <span>{formatRetrievalConfidenceLabel(selectedConversationReviewRow?.latestRetrievalConfidence)}</span>
+                        </div>
+
+                        <div className="transcript-message-list" aria-label="Conversation transcript">
+                          {transcriptMessages.length ? (
+                            transcriptMessages.map((message) => {
+                              const isStudentMessage = message.role === "student";
+
+                              return (
+                                <article
+                                  className={`review-message ${isStudentMessage ? "student" : "assistant"}`}
+                                  key={message.id}
+                                >
+                                  {!isStudentMessage ? (
+                                    <span className="review-message-avatar" aria-hidden="true">
+                                      C
+                                    </span>
+                                  ) : null}
+                                  <div className="review-message-stack">
+                                    <div className="review-message-bubble">
+                                      <p>{message.content}</p>
+                                      {!isStudentMessage && message.sources?.length ? (
+                                        <div className="review-source-pills" aria-label="Sources used">
+                                          {message.sources.map((source, index) => (
+                                            <span
+                                              key={`${source.title}-${source.pageNumber ?? ""}-${source.problemNumber ?? ""}-${index}`}
+                                            >
+                                              {formatSourceLabel(source)}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                    <time>{formatConversationDate(message.createdAt)}</time>
+                                  </div>
+                                </article>
+                              );
+                            })
+                          ) : (
+                            <div className="empty-state transcript-empty-state">
+                              <strong>No transcript loaded</strong>
+                              <span>Select a saved conversation to review messages and source citations.</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="review-readonly-footer" aria-label="Review-only transcript">
+                          <span>This transcript is read-only. Use teacher review actions and private notes for follow-up.</span>
+                        </div>
+                      </section>
+
+                      <aside className="conversation-review-side" aria-label="Teacher review and metadata">
+                        <section className="review-side-panel" aria-labelledby="teacher-review-actions-title">
+                          <div className="conversation-panel-heading">
+                            <h3 id="teacher-review-actions-title">Teacher Review Actions</h3>
+                            <span>
+                              {reviewSaveMessage ||
+                                (selectedConversationReviewRow
+                                  ? `Current: ${formatConversationStatus(selectedConversationReviewRow.status)}`
+                                  : "Select a conversation")}
+                            </span>
+                          </div>
+                          <div className="review-action-grid">
+                            {conversationReviewActions.map((action) => (
+                              <button
+                                aria-pressed={selectedConversationReviewRow?.status === action.status}
+                                disabled={
+                                  !selectedConversationReviewRow ||
+                                  savingReviewConversationId === selectedConversationReviewRow.id
+                                }
+                                key={action.status}
+                                type="button"
+                                onClick={() => {
+                                  if (selectedConversationReviewRow) {
+                                    void saveConversationReview(selectedConversationReviewRow, action.status);
+                                  }
+                                }}
+                              >
+                                {action.label}
+                              </button>
+                            ))}
+                          </div>
+                          <label className="sr-only" htmlFor="conversation-private-note">
+                            Add private note
+                          </label>
+                          <textarea
+                            className={isConversationNoteHighlighted ? "highlighted" : undefined}
+                            id="conversation-private-note"
+                            maxLength={1000}
+                            placeholder="Add private note..."
+                            rows={3}
+                            value={selectedConversationPrivateNote}
+                            onChange={(event) => {
+                              if (!selectedConversationReviewRow) {
+                                return;
+                              }
+                              setHighlightedNoteConversationId(selectedConversationReviewRow.id);
+                              setConversationNotesById((currentNotes) => ({
+                                ...currentNotes,
+                                [selectedConversationReviewRow.id]: event.target.value
+                              }));
+                            }}
+                          />
+                          <div className="review-note-actions">
+                            <button
+                              disabled={
+                                !selectedConversationReviewRow ||
+                                savingReviewConversationId === selectedConversationReviewRow.id
+                              }
+                              type="button"
+                              onClick={() => {
+                                if (selectedConversationReviewRow) {
+                                  void saveConversationReview(selectedConversationReviewRow);
+                                }
+                              }}
+                            >
+                              {selectedConversationReviewRow &&
+                              savingReviewConversationId === selectedConversationReviewRow.id
+                                ? "Saving"
+                                : "Save note"}
+                            </button>
+                            <span>Private to you</span>
+                          </div>
+                        </section>
+
+                        <section className="review-side-panel" aria-labelledby="conversation-summary-title">
+                          <div className="conversation-panel-heading">
+                            <h3 id="conversation-summary-title">Conversation Summary</h3>
+                            <span>{selectedConversationReviewRow ? formatConversationStatus(selectedConversationReviewRow.status) : ""}</span>
+                          </div>
+                          <div className="conversation-summary-card">
+                            <span>Topic</span>
+                            <strong>{selectedConversationReviewRow?.topic ?? "No topic yet"}</strong>
+                          </div>
+                          <div className="conversation-summary-stack">
+                            <article>
+                              <span>Student asked</span>
+                              <p>{formatConversationMainQuestion(transcriptMessages, selectedConversationReviewRow)}</p>
+                            </article>
+                            <article>
+                              <span>Chandra responded with</span>
+                              <p>{formatAssistantHelpSummary(transcriptMessages, selectedConversationReviewRow)}</p>
+                            </article>
+                            <article>
+                              <span>Materials referenced</span>
+                              <p>{formatReferencedMaterials(conversationSourceRows)}</p>
+                            </article>
+                            <article>
+                              <span>Suggested next step</span>
+                              <p>{formatSuggestedFollowUp(selectedConversationReviewRow)}</p>
+                            </article>
+                          </div>
+                        </section>
+
+                        <section className="review-side-panel" aria-labelledby="source-audit-title">
+                          <div className="source-audit-heading">
+                            <h3 id="source-audit-title">Materials & Citations</h3>
+                            <div>
+                              <button
+                                disabled={!conversationCitationCount}
+                                type="button"
+                                onClick={() => {
+                                  if (selectedConversationReviewRow) {
+                                    setExpandedSourceConversationId((currentId) =>
+                                      currentId === selectedConversationReviewRow.id ? "" : selectedConversationReviewRow.id
+                                    );
+                                  }
+                                }}
+                              >
+                                {conversationCitationCount} citation{conversationCitationCount === 1 ? "" : "s"}
+                              </button>
+                              <span>{conversationSourceRows.length} material{conversationSourceRows.length === 1 ? "" : "s"}</span>
+                              <span>{hasSourceWarning ? "No source used warning" : "Sources present"}</span>
+                            </div>
+                          </div>
+                          <div className="source-audit-list">
+                            {visibleConversationSourceRows.map((source, index) => (
+                              <div className="source-audit-row" key={`${source.title}-${source.detail}-${index}`}>
+                                <span>{index + 1}</span>
+                                <strong>{source.title}</strong>
+                                <em>{source.detail}</em>
+                                <span className={`source-confidence-pill ${source.confidenceClass}`}>
+                                  {source.confidence}
+                                </span>
+                              </div>
+                            ))}
+                            {!isSourceAuditExpanded && conversationSourceRows.length > visibleConversationSourceRows.length ? (
+                              <button
+                                className="source-audit-expand"
+                                type="button"
+                                onClick={() => {
+                                  if (selectedConversationReviewRow) {
+                                    setExpandedSourceConversationId(selectedConversationReviewRow.id);
+                                  }
+                                }}
+                              >
+                                Show {conversationSourceRows.length - visibleConversationSourceRows.length} more material
+                                {conversationSourceRows.length - visibleConversationSourceRows.length === 1 ? "" : "s"}
+                              </button>
+                            ) : null}
+                            {hasSourceWarning ? (
+                              <div className="source-warning-row">
+                                <StrugglingTopicsIcon />
+                                Class-material question with no source used
+                              </div>
+                            ) : null}
+                          </div>
+                        </section>
+
+                        <section className="review-side-panel" aria-labelledby="student-timeline-title">
+                          <div className="student-timeline-heading">
+                            <h3 id="student-timeline-title">Student Timeline</h3>
+                            <button
+                              disabled={!selectedConversationReviewRow}
+                              type="button"
+                              onClick={() => {
+                                if (!selectedConversationReviewRow) {
+                                  return;
+                                }
+                                setSelectedStudentId(selectedConversationReviewRow.studentId);
+                                setSelectedStudentClassId(activeClassId);
+                                setActiveTab("roster");
+                              }}
+                            >
+                              Learning profile
+                              <ExternalLinkIcon />
+                            </button>
+                          </div>
+                          <div className="student-timeline-grid">
+                            <dl>
+                              <div>
+                                <dt>Recent conversations</dt>
+                                <dd>{selectedConversationRosterRow?.conversationsLabel ?? "0 conversations"}</dd>
+                              </div>
+                              <div>
+                                <dt>Last active</dt>
+                                <dd>{selectedConversationRosterRow?.lastActive ?? "Never"}</dd>
+                              </div>
+                              <div>
+                                <dt>Questions asked</dt>
+                                <dd>{selectedConversationRosterRow ? formatQuestionCount(selectedConversationRosterRow.totalQuestions) : "0 questions"}</dd>
+                              </div>
+                            </dl>
+                            <div className="timeline-chart" aria-label="Question volume last 7 days">
+                              {studentTimelineBars.map((bar, index) => (
+                                <span key={`${bar.dateKey}-${index}`} title={`${bar.count} activity point${bar.count === 1 ? "" : "s"} on ${bar.fullLabel}`}>
+                                  <i
+                                    className={bar.count ? undefined : "empty"}
+                                    style={{ height: `${bar.height}%` }}
+                                  />
+                                  <small>{bar.label}</small>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </section>
+                      </aside>
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="empty-state teacher-empty-state">
@@ -2296,6 +4212,127 @@ export function TeacherClassManager() {
         </section>
       </section>
 
+      {isMaterialDetailDrawerOpen && selectedMaterial ? (
+        <div className="detail-drawer-backdrop" role="presentation" onClick={closeMaterialDetail}>
+          <aside
+            aria-labelledby="material-detail-title"
+            aria-modal="true"
+            className="material-detail-drawer"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="material-detail-heading">
+              <span className="material-icon" aria-hidden="true">
+                <KnowledgeSourceIcon kind={selectedMaterial.kind} />
+              </span>
+              <div>
+                <h3 id="material-detail-title">{selectedMaterial.title}</h3>
+                <span>{formatMaterialMeta(selectedMaterial) || "Tutor knowledge source"}</span>
+              </div>
+              <button
+                aria-label="Close source details"
+                className="knowledge-icon-button"
+                type="button"
+                onClick={closeMaterialDetail}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+
+            <dl className="material-detail-stat-grid">
+              <div>
+                <dt>Upload date</dt>
+                <dd>{formatMaterialUploadDate(selectedMaterial)}</dd>
+              </div>
+              <div>
+                <dt>File type</dt>
+                <dd>{formatMaterialFileType(selectedMaterial)}</dd>
+              </div>
+              <div>
+                <dt>Size</dt>
+                <dd>{formatMaterialSize(selectedMaterial)}</dd>
+              </div>
+              <div>
+                <dt>Chunks</dt>
+                <dd>{formatMaterialChunkCount(selectedMaterial)}</dd>
+              </div>
+              <div>
+                <dt>Indexing status</dt>
+                <dd>
+                  <span className={`knowledge-badge ${knowledgeStatusClass(selectedMaterial)}`}>
+                    {formatKnowledgeStatus(selectedMaterial)}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+
+            <section className="material-detail-section" aria-labelledby="material-detail-visibility">
+              <h4 id="material-detail-visibility">Visibility settings</h4>
+              {selectedMaterialSettings ? (
+                <div className="material-detail-badge-list">
+                  <span className={`knowledge-badge ${knowledgeVisibilityClass(selectedMaterialSettings)}`}>
+                    {formatKnowledgeVisibility(selectedMaterialSettings)}
+                  </span>
+                  <span className="knowledge-badge hidden">Priority: {selectedMaterialSettings.priority}</span>
+                  <span className="knowledge-badge hidden">
+                    {selectedMaterialSettings.citationsRequired ? "Citations required" : "Citations optional"}
+                  </span>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="material-detail-section" aria-labelledby="material-detail-topics">
+              <h4 id="material-detail-topics">Related topics detected</h4>
+              {selectedMaterialDetail?.relatedTopics.length ? (
+                <div className="material-topic-list">
+                  {selectedMaterialDetail.relatedTopics.map((topic) => (
+                    <span key={topic}>{topic}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="material-detail-muted">
+                  {materialDetailLoadingId === selectedMaterial.id
+                    ? "Detecting topics from indexed chunks."
+                    : "No related topics detected yet."}
+                </p>
+              )}
+            </section>
+
+            <section className="material-detail-section" aria-labelledby="material-detail-chunks">
+              <div className="material-detail-section-heading">
+                <h4 id="material-detail-chunks">Sample chunks</h4>
+                {materialDetailLoadingId === selectedMaterial.id ? <span>Loading</span> : null}
+              </div>
+
+              {materialDetailError ? <p className="form-error">{materialDetailError}</p> : null}
+
+              {selectedMaterialDetail?.sampleChunks.length ? (
+                <div className="material-sample-list">
+                  {selectedMaterialDetail.sampleChunks.map((chunk) => (
+                    <article className="material-sample-row" key={chunk.id}>
+                      <div>
+                        <strong>{chunk.sectionHeading || chunk.label}</strong>
+                        <span>{formatMaterialChunkLocation(chunk)}</span>
+                      </div>
+                      <p>{chunk.excerpt}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state material-detail-empty">
+                  <strong>{materialDetailLoadingId === selectedMaterial.id ? "Loading chunks" : "No sample chunks"}</strong>
+                  <span>
+                    {materialDetailLoadingId === selectedMaterial.id
+                      ? "Reading indexed excerpts for this source."
+                      : "Reprocess this source if the chunk count looks incorrect."}
+                  </span>
+                </div>
+              )}
+            </section>
+          </aside>
+        </div>
+      ) : null}
+
       {isClassDialogOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section
@@ -2303,10 +4340,9 @@ export function TeacherClassManager() {
             aria-modal="true"
             className="modal-dialog"
             role="dialog"
-          >
+            >
             <div className="modal-heading">
               <div>
-                <p className="eyebrow">Create class</p>
                 <h3 id="create-class-title">New class</h3>
               </div>
               <button
@@ -2368,10 +4404,9 @@ export function TeacherClassManager() {
             aria-modal="true"
             className="modal-dialog"
             role="dialog"
-          >
+            >
             <div className="modal-heading">
               <div>
-                <p className="eyebrow">Roster</p>
                 <h3 id="add-student-title">Add student</h3>
               </div>
               <button
@@ -2434,10 +4469,9 @@ export function TeacherClassManager() {
             aria-modal="true"
             className="modal-dialog knowledge-modal-dialog"
             role="dialog"
-          >
+            >
             <div className="modal-heading">
               <div>
-                <p className="eyebrow">Tutor Knowledge</p>
                 <h3 id="add-knowledge-title">Add knowledge</h3>
               </div>
               <button
@@ -2488,7 +4522,7 @@ export function TeacherClassManager() {
                 type="file"
                 onChange={(event) => handleMaterialFileChange(event.target.files?.[0] ?? null)}
               />
-              <p className="field-hint">PDF, TXT, MD, or CSV only. Max size: {formatBytes(maxTutorKnowledgeUploadBytes)}.</p>
+              <p className="field-hint">PDF, TXT, MD, or CSV only.</p>
 
               <label className="field-label" htmlFor="material-text">
                 Paste tutor knowledge text
@@ -2583,8 +4617,142 @@ function SettingsToggle({
   );
 }
 
+function InsightMetricCard({
+  icon,
+  label,
+  tone,
+  value
+}: {
+  icon: ReactNode;
+  label: string;
+  tone: "gold" | "orange" | "teal";
+  value: string;
+}) {
+  return (
+    <article className={`insight-metric-card ${tone}`}>
+      <span className="insight-metric-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="insight-metric-copy">
+        <strong>{value}</strong>
+        <span>{label}</span>
+      </span>
+    </article>
+  );
+}
+
+function InsightFeedbackActions({
+  disabled = false,
+  itemId,
+  onAction
+}: {
+  disabled?: boolean;
+  itemId: string;
+  onAction: (action: TeacherInsightFeedbackAction, itemId?: string) => void;
+}) {
+  return (
+    <div className="insight-feedback-actions" aria-label="Insight feedback actions">
+      <button disabled={disabled} onClick={() => onAction("useful", itemId)} type="button">
+        <ThumbUpIcon />
+        Useful
+      </button>
+      <button disabled={disabled} onClick={() => onAction("notUseful", itemId)} type="button">
+        <ThumbDownIcon />
+        Not useful
+      </button>
+      <button disabled={disabled} onClick={() => onAction("dismiss", itemId)} type="button">
+        <CloseIcon />
+        Dismiss
+      </button>
+      <button disabled={disabled} onClick={() => onAction("markResolved", itemId)} type="button">
+        <CheckCircleIcon />
+        Mark resolved
+      </button>
+      <button
+        disabled={disabled}
+        onClick={() => document.getElementById("teacher-feedback-note")?.focus()}
+        type="button"
+      >
+        <NoteIcon />
+        Add note
+      </button>
+    </div>
+  );
+}
+
+type InsightTrendTone = "up" | "down" | "new" | "recurring";
+
+function TrendIcon({ tone }: { tone: InsightTrendTone }) {
+  if (tone === "new") {
+    return (
+      <span className={`trend-icon ${tone}`} aria-hidden="true">
+        <svg fill="none" height="18" viewBox="0 0 18 18" width="18">
+          <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M9 6.4v5.2M6.4 9h5.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        </svg>
+      </span>
+    );
+  }
+
+  return (
+    <span className={`trend-icon ${tone}`} aria-hidden="true">
+      <svg fill="none" height="18" viewBox="0 0 18 18" width="18">
+        {tone === "up" ? (
+          <path d="M4 12.5 12.5 4M8 4h4.5v4.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        ) : tone === "down" ? (
+          <path d="M4 5.5 12.5 14M8 14h4.5V9.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        ) : (
+          <path d="M5.2 6.4A5 5 0 0 1 13.5 8M13.5 8V4.8M13.5 8h-3.2M12.8 11.6A5 5 0 0 1 4.5 10M4.5 10v3.2M4.5 10h3.2" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+        )}
+      </svg>
+    </span>
+  );
+}
+
+function InsightSparkline({ points, tone }: { points?: number[]; tone: InsightTrendTone }) {
+  const pointsByTone = {
+    down: "2,5 14,13 25,12 36,17 47,13 58,16 69,14 80,25 91,23 102,28 113,25 124,31",
+    new: "2,27 14,28 25,23 36,22 47,17 58,20 69,11 80,18 91,12 102,15 113,3 124,7",
+    recurring: "2,12 14,16 25,14 36,8 47,22 58,24 69,7 80,13 91,15 102,19 113,14 124,24",
+    up: "2,23 14,21 25,17 36,10 47,15 58,13 69,4 80,15 91,10 102,12 113,10 124,11"
+  };
+  const polylinePoints = points?.length ? insightSparklinePoints(points) : pointsByTone[tone];
+
+  return (
+    <svg className={`insight-sparkline ${tone}`} viewBox="0 0 126 34" role="img" aria-label={`${tone} trend sparkline`}>
+      <polyline points={polylinePoints} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function insightSparklinePoints(points: number[]) {
+  const boundedPoints = points.slice(0, 14).map((point) => Math.max(0, Math.min(100, Number(point) || 0)));
+  const maxPoint = Math.max(...boundedPoints, 1);
+  const horizontalStep = boundedPoints.length > 1 ? 124 / (boundedPoints.length - 1) : 124;
+
+  return boundedPoints
+    .map((point, index) => {
+      const x = 2 + index * horizontalStep;
+      const y = 31 - (point / maxPoint) * 28;
+      return `${Math.round(x)},${Math.round(y)}`;
+    })
+    .join(" ");
+}
+
 function capitalizeLabel(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatMathNotationLabel(value: string) {
+  if (value === "plain") {
+    return "Plain language";
+  }
+
+  if (value === "symbolic") {
+    return "More symbols";
+  }
+
+  return "Balanced";
 }
 
 function KnowledgeToggle({
@@ -2610,6 +4778,70 @@ function formatMaterialMeta(material: ClassMaterial) {
     material.kind,
     material.fileName
   ].filter(Boolean).join(" / ");
+}
+
+function formatMaterialUploadDate(material: ClassMaterial) {
+  return formatConversationDate(material.addedAt) || "Not recorded";
+}
+
+function formatMaterialFileType(material: ClassMaterial) {
+  if (material.sourceMode === "pasted") {
+    return "Pasted text";
+  }
+
+  if (material.contentType) {
+    if (material.contentType === "application/pdf") {
+      return "PDF";
+    }
+
+    if (material.contentType.includes("markdown")) {
+      return "Markdown";
+    }
+
+    if (material.contentType.includes("csv")) {
+      return "CSV";
+    }
+
+    if (material.contentType.startsWith("text/")) {
+      return "Text";
+    }
+
+    return material.contentType;
+  }
+
+  const extension = material.fileName?.split(".").pop()?.trim().toUpperCase();
+
+  return extension || "Source";
+}
+
+function formatMaterialSize(material: ClassMaterial) {
+  if (typeof material.fileSize === "number" && material.fileSize > 0) {
+    return formatBytes(material.fileSize);
+  }
+
+  if (typeof material.characterCount === "number" && material.characterCount > 0) {
+    return `${material.characterCount.toLocaleString()} chars`;
+  }
+
+  return "Not recorded";
+}
+
+function formatMaterialChunkLocation(chunk: MaterialDetailChunk) {
+  const parts = [
+    chunk.pageStart ? formatChunkPageRange(chunk.pageStart, chunk.pageEnd) : "",
+    chunk.problemNumbers.length ? `Problems ${chunk.problemNumbers.join(", ")}` : "",
+    chunk.label
+  ];
+
+  return parts.filter(Boolean).join(" / ");
+}
+
+function formatChunkPageRange(pageStart: number, pageEnd?: number | null) {
+  if (pageEnd && pageEnd !== pageStart) {
+    return `Pages ${pageStart}-${pageEnd}`;
+  }
+
+  return `Page ${pageStart}`;
 }
 
 function knowledgeFilterMatchesMaterial(filter: KnowledgeFilter, material: ClassMaterial) {
@@ -2650,6 +4882,27 @@ function defaultKnowledgeSourceSettings(material?: ClassMaterial): KnowledgeSour
       (material?.kind === "Assignment" || material?.kind === "Reading" ? "Primary" : "Normal"),
     teacherOnly: material?.teacherOnly ?? isTeacherOnly
   };
+}
+
+function buildOverviewKnowledgeStats(materials: ClassMaterial[]) {
+  const total = materials.length;
+  const ready = materials.filter((material) => material.status === "ready").length;
+  const processing = materials.filter((material) => material.status === "processing").length;
+  const needsReview =
+    materials.filter((material) => material.status !== "ready" && material.status !== "processing").length;
+  const teacherOnly =
+    materials.filter((material) => defaultKnowledgeSourceSettings(material).teacherOnly).length;
+  const activeForStudents =
+    materials.filter((material) => defaultKnowledgeSourceSettings(material).activeForStudents).length;
+
+  return [
+    { label: "Total uploaded", tone: "ink", value: total },
+    { label: "Ready", tone: "ready", value: ready },
+    { label: "Processing", tone: "processing", value: processing },
+    { label: "Failed / needs review", tone: "failed", value: needsReview },
+    { label: "Teacher-only", tone: "teacher-only", value: teacherOnly },
+    { label: "Active for students", tone: "ready", value: activeForStudents }
+  ];
 }
 
 function formatKnowledgeVisibility(settings: KnowledgeSourceSettings) {
@@ -2760,9 +5013,21 @@ function knowledgePriorityFromApi(priority: ClassMaterial["priority"]): Knowledg
 }
 
 function formatSectionLabel(section: string) {
-  const normalizedSection = section.trim().replace(/^(section|period)\s*:?\s*/i, "");
+  const trimmedSection = section.trim();
 
-  return normalizedSection ? `Section: ${normalizedSection}` : "Section";
+  if (!trimmedSection) {
+    return "Section";
+  }
+
+  if (/^(section|period|block)\b/i.test(trimmedSection)) {
+    return trimmedSection;
+  }
+
+  return /^[0-9A-Z]$/i.test(trimmedSection) ? `Section ${trimmedSection}` : trimmedSection;
+}
+
+function formatInsightsDateLabel(date: Date) {
+  return `Today · ${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 }
 
 function getInitials(name: string, email: string) {
@@ -2794,6 +5059,78 @@ function RosterStatCard({
       <strong>{value}</strong>
     </article>
   );
+}
+
+function ConversationMetricCard({
+  icon,
+  label,
+  tone,
+  value
+}: {
+  icon: ReactNode;
+  label: string;
+  tone: "gold" | "orange" | "teal";
+  value: string;
+}) {
+  return (
+    <article className={`conversation-metric-card ${tone}`}>
+      <span className="conversation-metric-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span>
+        <strong>{value}</strong>
+        <em>{label}</em>
+      </span>
+    </article>
+  );
+}
+
+function OverviewMetricCard({
+  icon,
+  isTinted,
+  label,
+  value
+}: {
+  icon: ReactNode;
+  isTinted?: boolean;
+  label: string;
+  value: string;
+}) {
+  return (
+    <article className={`overview-metric-card ${isTinted ? "tinted" : ""}`}>
+      <span className="overview-metric-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="overview-metric-copy">
+        <strong>{value}</strong>
+        <span>{label}</span>
+      </span>
+    </article>
+  );
+}
+
+function overviewNextActionIcon(action: TeacherClassOverview["nextActions"][number]["action"]) {
+  if (action === "addStudent" || action === "openRoster" || action === "viewStudentChats") {
+    return <UserIcon />;
+  }
+
+  if (action === "addKnowledge" || action === "openKnowledge" || action === "testRetrieval") {
+    return <BookOpenIcon />;
+  }
+
+  if (action === "reviewConversations") {
+    return <ChatIcon />;
+  }
+
+  if (action === "reviewLearningProfiles") {
+    return <NoteIcon />;
+  }
+
+  if (action === "openStudentView") {
+    return <ExternalLinkIcon />;
+  }
+
+  return <LightbulbIcon />;
 }
 
 function StudentLearningProfileCard({
@@ -3041,6 +5378,36 @@ function normalizeProfileComparisonText(value: string) {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function PlusIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M7 3.5v3M17 3.5v3M4.5 9h15M6.5 5h11A2.5 2.5 0 0 1 20 7.5v10A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-10A2.5 2.5 0 0 1 6.5 5Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path d="m6 9 6 6 6-6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
 function BookOpenIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="22" viewBox="0 0 24 24" width="22">
@@ -3236,6 +5603,35 @@ function StrugglingTopicsIcon() {
   );
 }
 
+function CircleIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <circle cx="12" cy="12" r="4.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function LowConfidenceIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M12 3v10"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+      <path
+        d="m7 9 5 5 5-5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <path d="M5 19h14" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
 function ChatIcon() {
   return (
     <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
@@ -3294,12 +5690,536 @@ function UserIcon() {
   );
 }
 
+function UserGroupIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20">
+      <path
+        d="M16.5 19.5a4.5 4.5 0 0 0-9 0M12 12.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M19 18.5a3.3 3.3 0 0 0-2.9-3.2M16.2 6.2a2.7 2.7 0 0 1 0 5.1M5 18.5a3.3 3.3 0 0 1 2.9-3.2M7.8 6.2a2.7 2.7 0 0 0 0 5.1"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function TrendLineIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20">
+      <path d="M4 18 9 12.5l4 3.5 7-9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" />
+      <path d="M15 7h5v5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" />
+      <path d="M4 21h16" stroke="currentColor" strokeLinecap="round" strokeWidth="1.9" />
+    </svg>
+  );
+}
+
+function ThumbUpIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M7.5 21H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h2.5M7.5 21V9.5l4.2-6.4A1.6 1.6 0 0 1 14.6 4v5h4.1a2.3 2.3 0 0 1 2.2 2.9l-1.7 6.6A3.3 3.3 0 0 1 16 21H7.5Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function ThumbDownIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M16.5 3H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2.5M16.5 3v11.5l-4.2 6.4A1.6 1.6 0 0 1 9.4 20v-5H5.3a2.3 2.3 0 0 1-2.2-2.9l1.7-6.6A3.3 3.3 0 0 1 8 3h8.5Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function CheckCircleIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path d="m8 12 2.6 2.6L16.5 9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function NoteIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+      <path
+        d="M5 4.5h14v10.8L14.8 19.5H5v-15Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path d="M14.5 19.5v-4.2H19M8 9h8M8 12.5h5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function LightbulbIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M9 18h6M9.8 21h4.4M8.2 14.2a6 6 0 1 1 7.6 0c-.9.7-1.4 1.7-1.4 2.8H9.6c0-1.1-.5-2.1-1.4-2.8Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
 function buildStudentActivityByEmail(activity: StudentRosterActivitySummary[]) {
   return new Map(
     activity
       .filter((studentActivity) => studentActivity.studentEmail.trim())
       .map((studentActivity) => [studentActivity.studentEmail.trim().toLowerCase(), studentActivity])
   );
+}
+
+function buildConversationReviewRows(
+  classConversations: TeacherConversationReviewSummary[],
+  activeClassId: string
+): ConversationReviewRow[] {
+  return classConversations
+    .filter((conversation) => conversation.classId === activeClassId)
+    .map((conversation) => ({
+      id: conversation.id,
+      lastMessageAt: conversation.lastMessageAt,
+      lastMessageLabel: formatConversationDate(conversation.lastMessageAt) || "No messages",
+      messageCount: conversation.messageCount,
+      modelId: conversation.modelId,
+      review: conversation.review,
+      sourceAudit: conversation.sourceAudit,
+      status: conversation.reviewStatus,
+      latestRetrievalConfidence: conversation.latestRetrievalConfidence,
+      studentEmail: conversation.studentEmail.trim().toLowerCase(),
+      studentId: conversation.studentId,
+      studentName: conversation.studentName || "Student",
+      title: conversation.title || "Untitled conversation",
+      topic: conversation.topic
+    }))
+    .sort(
+      (first, second) =>
+        (coerceDate(second.lastMessageAt)?.getTime() ?? 0) - (coerceDate(first.lastMessageAt)?.getTime() ?? 0)
+    );
+}
+
+function filterConversationReviewRows({
+  evidenceConversationIds,
+  filter,
+  query,
+  rows,
+  studentEmail,
+  topic
+}: {
+  evidenceConversationIds: string[];
+  filter: ConversationFilter;
+  query: string;
+  rows: ConversationReviewRow[];
+  studentEmail: string;
+  topic: string;
+}) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const evidenceConversationIdSet = new Set(evidenceConversationIds);
+
+  return rows.filter((row) => {
+    if (evidenceConversationIdSet.size && !evidenceConversationIdSet.has(row.id)) {
+      return false;
+    }
+
+    if (studentEmail !== "all" && row.studentEmail !== studentEmail) {
+      return false;
+    }
+
+    if (topic !== "all" && row.topic !== topic) {
+      return false;
+    }
+
+    if (
+      normalizedQuery &&
+      ![row.studentName, row.title, row.topic, formatConversationStatus(row.status)].some((value) =>
+        value.toLowerCase().includes(normalizedQuery)
+      )
+    ) {
+      return false;
+    }
+
+    if (filter === "unreviewed" || filter === "noTeacherReview") {
+      return row.status === "new";
+    }
+
+    if (filter === "activeToday") {
+      return isToday(row.lastMessageAt);
+    }
+
+    if (filter === "highMessageCount") {
+      return row.messageCount >= 8;
+    }
+
+    if (filter === "offTopic") {
+      return row.topic.toLowerCase().includes("off-topic");
+    }
+
+    if (filter === "lowConfidence") {
+      return row.sourceAudit.lowSourceConfidence;
+    }
+
+    return true;
+  });
+}
+
+function buildConversationMetrics(rows: ConversationReviewRow[], rosterRows: RosterRow[]) {
+  const total = rows.length || rosterRows.reduce((sum, row) => sum + row.conversationsCount, 0);
+
+  return {
+    followUp: rows.filter((row) => row.status === "needs_follow_up").length,
+    lowConfidence: rows.filter((row) => row.sourceAudit.lowSourceConfidence).length,
+    total,
+    unreviewed: rows.filter((row) => row.status === "new").length
+  };
+}
+
+function buildConversationSourceRows(
+  sourceAudit: TeacherConversationSourceAuditSummary | undefined,
+  messages: ChatMessage[],
+  materials: ClassMaterial[]
+) {
+  const sourceRows = new Map<
+    string,
+    {
+      citationCount: number;
+      confidence: string;
+      confidenceClass: "high" | "low";
+      detail: string;
+      materialType: string;
+      pages: Set<string>;
+      title: string;
+    }
+  >();
+
+  if (sourceAudit) {
+    const confidenceClass = sourceAudit.lowSourceConfidence ? "low" : "high";
+
+    for (const source of sourceAudit.sources) {
+      addConversationSourceRow(sourceRows, {
+        confidence: confidenceClass === "high" ? "High confidence" : "Low confidence",
+        confidenceClass,
+        materialType: source.materialType,
+        source
+      });
+    }
+
+    return finalizeConversationSourceRows(sourceRows);
+  }
+
+  for (const message of messages) {
+    for (const source of message.sources ?? []) {
+      const material = materials.find((currentMaterial) => currentMaterial.title === source.title);
+      const confidenceClass = material?.status === "ready" || source.pageNumber || source.problemNumber ? "high" : "low";
+      addConversationSourceRow(sourceRows, {
+        confidence: confidenceClass === "high" ? "High confidence" : "Low confidence",
+        confidenceClass,
+        materialType: source.materialType,
+        source
+      });
+    }
+  }
+
+  return finalizeConversationSourceRows(sourceRows);
+}
+
+function addConversationSourceRow(
+  sourceRows: Map<
+    string,
+    {
+      citationCount: number;
+      confidence: string;
+      confidenceClass: "high" | "low";
+      detail: string;
+      materialType: string;
+      pages: Set<string>;
+      title: string;
+    }
+  >,
+  {
+    confidence,
+    confidenceClass,
+    materialType,
+    source
+  }: {
+    confidence: string;
+    confidenceClass: "high" | "low";
+    materialType: string;
+    source: NonNullable<ChatMessage["sources"]>[number];
+  }
+) {
+  const title = source.title || "Class material";
+  const sourceKey = `${title}-${materialType || "class-material"}`.toLowerCase();
+  const pageLabel = [source.pageNumber ? `p. ${source.pageNumber}` : "", source.problemNumber ? `Problem ${source.problemNumber}` : ""]
+    .filter(Boolean)
+    .join(" / ");
+  const existingRow = sourceRows.get(sourceKey);
+
+  if (existingRow) {
+    existingRow.citationCount += 1;
+    if (pageLabel) {
+      existingRow.pages.add(pageLabel);
+    }
+    if (confidenceClass === "low") {
+      existingRow.confidence = confidence;
+      existingRow.confidenceClass = confidenceClass;
+    }
+    return;
+  }
+
+  sourceRows.set(sourceKey, {
+    citationCount: 1,
+    confidence,
+    confidenceClass,
+    detail: "",
+    materialType: materialType || "Class material",
+    pages: new Set(pageLabel ? [pageLabel] : []),
+    title
+  });
+}
+
+function finalizeConversationSourceRows(
+  sourceRows: Map<
+    string,
+    {
+      citationCount: number;
+      confidence: string;
+      confidenceClass: "high" | "low";
+      detail: string;
+      materialType: string;
+      pages: Set<string>;
+      title: string;
+    }
+  >
+): ConversationSourceRow[] {
+  return Array.from(sourceRows.values()).map((sourceRow) => {
+    const pages = Array.from(sourceRow.pages);
+
+    return {
+      ...sourceRow,
+      detail: pages.length ? pages.join(", ") : sourceRow.materialType,
+      pages
+    };
+  });
+}
+
+function formatReferencedMaterials(sourceRows: ConversationSourceRow[]) {
+  if (!sourceRows.length) {
+    return "No class material cited yet.";
+  }
+
+  return sourceRows
+    .slice(0, 3)
+    .map((source) => source.title)
+    .join(", ");
+}
+
+function buildStudentTimelineBars(row: RosterRow | null, conversations: ConversationReviewRow[]) {
+  const today = startOfLocalDay(new Date());
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (6 - index));
+    return date;
+  });
+  const countsByDate = new Map(days.map((date) => [dateKeyFromDate(date), 0]));
+
+  if (row) {
+    const studentConversations = conversations.filter(
+      (conversation) =>
+        conversation.studentId === row.student.id ||
+        conversation.studentEmail.trim().toLowerCase() === row.studentEmail.trim().toLowerCase()
+    );
+
+    for (const conversation of studentConversations) {
+      const date = coerceDate(conversation.lastMessageAt);
+
+      if (!date) {
+        continue;
+      }
+
+      const dateKey = dateKeyFromDate(date);
+
+      if (!countsByDate.has(dateKey)) {
+        continue;
+      }
+
+      countsByDate.set(dateKey, (countsByDate.get(dateKey) ?? 0) + Math.max(1, Math.ceil(conversation.messageCount / 2)));
+    }
+
+    const todayKey = dateKeyFromDate(today);
+    if ((countsByDate.get(todayKey) ?? 0) === 0 && row.questionsToday > 0) {
+      countsByDate.set(todayKey, row.questionsToday);
+    }
+  }
+
+  const maxCount = Math.max(1, ...Array.from(countsByDate.values()));
+
+  return days.map((date, index) => {
+    const dateKey = dateKeyFromDate(date);
+    const count = countsByDate.get(dateKey) ?? 0;
+
+    return {
+      count,
+      dateKey,
+      fullLabel: formatTimelineFullDate(date),
+      height: count ? Math.max(16, Math.round((count / maxCount) * 92)) : 4,
+      label: index % 2 === 0 || index === days.length - 1 ? formatTimelineDate(date) : ""
+    };
+  });
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function dateKeyFromDate(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+function formatTimelineDate(date: Date) {
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatTimelineFullDate(date: Date) {
+  return date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+}
+
+function conversationStatusClass(status: ConversationReviewStatus) {
+  if (status === "needs_follow_up" || status === "misunderstanding_spotted") {
+    return "follow-up";
+  }
+
+  if (status === "reviewed" || status === "good_learning_moment") {
+    return "reviewed";
+  }
+
+  if (status === "ai_answer_needs_review") {
+    return "ai-review";
+  }
+
+  return "new";
+}
+
+function formatConversationStatus(status: ConversationReviewStatus) {
+  switch (status) {
+    case "reviewed":
+      return "Reviewed";
+    case "needs_follow_up":
+      return "Needs follow-up";
+    case "misunderstanding_spotted":
+      return "Misunderstanding spotted";
+    case "good_learning_moment":
+      return "Good learning moment";
+    case "ai_answer_needs_review":
+      return "AI answer review";
+    case "new":
+    default:
+      return "New";
+  }
+}
+
+function formatRetrievalConfidenceLabel(confidence: TeacherConversationReviewSummary["latestRetrievalConfidence"]) {
+  if (!confidence) {
+    return "Retrieval confidence: pending";
+  }
+
+  return `Retrieval confidence: ${confidence}`;
+}
+
+function formatConversationMainQuestion(messages: ChatMessage[], row: ConversationReviewRow | null) {
+  const studentMessage = messages.find((message) => message.role === "student");
+
+  return trimSummary(studentMessage?.content || row?.title || "No student question recorded.");
+}
+
+function formatAssistantHelpSummary(messages: ChatMessage[], row: ConversationReviewRow | null) {
+  const assistantMessage = messages.find((message) => message.role === "assistant");
+
+  if (assistantMessage) {
+    return trimSummary(assistantMessage.content);
+  }
+
+  return row ? `Support around ${row.topic.toLowerCase()}` : "No assistant response recorded.";
+}
+
+function formatUnresolvedConfusion(row: ConversationReviewRow | null) {
+  if (!row) {
+    return "No conversation selected";
+  }
+
+  if (row.status === "needs_follow_up" || row.status === "misunderstanding_spotted") {
+    return "May need another setup step";
+  }
+
+  if (row.status === "ai_answer_needs_review" || row.sourceAudit.lowSourceConfidence) {
+    return "Review answer and source fit";
+  }
+
+  return "None flagged";
+}
+
+function formatSuggestedFollowUp(row: ConversationReviewRow | null) {
+  if (!row) {
+    return "Select a conversation";
+  }
+
+  if (row.status === "reviewed" || row.status === "good_learning_moment") {
+    return "No immediate follow-up";
+  }
+
+  return "Check problem interpretation tomorrow";
+}
+
+function trimSummary(value: string) {
+  const normalizedValue = value.replace(/\s+/g, " ").trim();
+
+  if (normalizedValue.length <= 74) {
+    return normalizedValue;
+  }
+
+  return `${normalizedValue.slice(0, 71)}...`;
+}
+
+function isToday(value: unknown) {
+  const date = coerceDate(value);
+
+  if (!date) {
+    return false;
+  }
+
+  const today = new Date();
+  return date.toDateString() === today.toDateString();
 }
 
 function buildRosterRows({
@@ -3317,12 +6237,15 @@ function buildRosterRows({
     const status = activityStatusLabel(activity?.status ?? "no_activity");
     const recentConversations =
       activity?.recentConversations.map((conversation) => ({
+        id: conversation.id,
+        lastMessageAt: conversation.lastMessageAt,
+        messageCount: conversation.messageCount,
         meta: formatConversationDate(conversation.lastMessageAt),
         title: conversation.title
       })) ?? [];
 
     return {
-      activeToday: (activity?.questionsToday ?? 0) > 0,
+      activeToday: status === "Active",
       conversationsCount,
       conversationsLabel: formatConversationCount(conversationsCount),
       hasConversations: conversationsCount > 0,
@@ -3407,7 +6330,7 @@ function buildRecentConversationPreviews(row: RosterRow): RosterConversationPrev
     return row.recentConversations;
   }
 
-  return [{ title: "No recent conversations", meta: "" }];
+  return [{ id: "empty", lastMessageAt: "", messageCount: 0, title: "No recent conversations", meta: "" }];
 }
 
 function formatLastActive(value: unknown) {
@@ -3481,6 +6404,19 @@ function formatConversationDate(value: unknown) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit"
+  }).format(date);
+}
+
+function formatInsightDateOnly(value: unknown) {
+  const date = coerceDate(value);
+
+  if (!date) {
+    return String(value ?? "").trim();
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric"
   }).format(date);
 }
 
@@ -3800,10 +6736,6 @@ function uploadStepDetail(step: MaterialUploadProgress["step"]) {
 }
 
 function validateTutorKnowledgeFile(file: File) {
-  if (file.size > maxTutorKnowledgeUploadBytes) {
-    throw new Error("Files must be 12 MB or smaller.");
-  }
-
   const normalizedName = file.name.toLowerCase();
   const supportedExtension = supportedTutorKnowledgeExtensions.some((extension) =>
     normalizedName.endsWith(extension)

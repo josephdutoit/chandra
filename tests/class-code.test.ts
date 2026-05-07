@@ -60,3 +60,15 @@ test("teacher roster sync backfills students who already saved the classId", () 
   assert.match(syncSource, /profile\.role !== "student"/);
   assert.match(syncSource, /classReference\.collection\("students"\)\.doc\(rosterStudentId\)/);
 });
+
+test("teacher class creation uses an authenticated server route", () => {
+  const clientSource = readFileSync(join(repoRoot, "lib/classes.ts"), "utf8");
+  const routeSource = readFileSync(join(repoRoot, "app/api/classes/route.ts"), "utf8");
+
+  assert.match(clientSource, /fetch\(apiUrl\("\/api\/classes"\)/);
+  assert.match(clientSource, /Authorization: `Bearer \$\{token\}`/);
+  assert.doesNotMatch(clientSource, /setDoc\(classReference/);
+  assert.match(routeSource, /verifyIdToken\(token\)/);
+  assert.match(routeSource, /profile\?\.role !== "teacher"/);
+  assert.match(routeSource, /collection\("classes"\)\.doc\(classCode\)\.set/);
+});

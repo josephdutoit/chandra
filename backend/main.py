@@ -17,7 +17,8 @@ from dotenv import load_dotenv
 from .material_visibility import is_student_visible_ready_material
 from .sample_data import COURSES, DOCUMENTS, TUTOR_POLICIES
 
-load_dotenv(".env.local")
+if os.getenv("CHANDRA_ENV_LOADED") != "1":
+    load_dotenv(".env.local")
 
 DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-mini"
 
@@ -168,10 +169,6 @@ async def extract_material(
 ) -> dict[str, str]:
     authorize_class_teacher(classId, authorization)
     contents = await file.read()
-    max_upload_bytes = 12 * 1024 * 1024
-
-    if len(contents) > max_upload_bytes:
-        raise HTTPException(status_code=400, detail="Files must be 12 MB or smaller.")
 
     file_name = file.filename or "material"
     is_pdf = file.content_type == "application/pdf" or file_name.lower().endswith(".pdf")
@@ -639,6 +636,7 @@ def build_core_tutor_instructions(
         *tutor_behavior_lines(policy_title),
         *answer_policy_lines(answer_policy),
         "- Give the smallest useful hint before giving a larger explanation.",
+        "- When a student gives a calculation, answer, or conclusion, verify it before affirming it. If it is incorrect, point out the first wrong step or value and continue from the corrected idea.",
         "",
         "Academic integrity boundaries:",
         *academic_integrity_lines(answer_policy),
@@ -655,8 +653,9 @@ def build_core_tutor_instructions(
         ),
         "",
         "Style:",
-        "- Keep replies brief enough for a chat interface.",
+        response_length_style_line(model_settings["responseLength"]),
         "- Be warm, calm, and concrete.",
+        "- For simple greetings or check-ins, reply naturally in one short chat message and ask what course problem or concept the student wants to work on; do not format that as a next-step tutoring move.",
         "- Use LaTeX for math expressions.",
     ]
 
@@ -680,6 +679,7 @@ def normalize_source_usage(value: Optional[dict[str, Any]]) -> dict[str, Any]:
         "citeSourcePages": bool_with_default(source.get("citeSourcePages"), True),
         "askClarificationIfSourceUnclear": bool_with_default(source.get("askClarificationIfSourceUnclear"), True),
         "preferredSourceType": preferred_source_type,
+        "quoteSourcePassages": bool_with_default(source.get("quoteSourcePassages"), True),
     }
 
 
@@ -691,7 +691,7 @@ def normalize_model_settings(value: Optional[dict[str, Any]]) -> dict[str, Any]:
         "modelId": str(source.get("modelId") or DEFAULT_OPENROUTER_MODEL),
         "reasoningEffort": reasoning_effort if reasoning_effort in {"low", "medium", "high"} else "medium",
         "creativity": clamp_int(source.get("creativity"), 35, 0, 100),
-        "responseLength": response_length if response_length in {"short", "medium", "long"} else "medium",
+        "responseLength": response_length if response_length in {"short", "medium", "long", "extended"} else "medium",
     }
 
 
@@ -714,10 +714,22 @@ def creativity_to_temperature(creativity: int) -> float:
 
 def response_length_to_max_tokens(response_length: str) -> int:
     if response_length == "short":
-        return 700
+        return 900
+    if response_length == "extended":
+        return 7000
     if response_length == "long":
-        return 2600
-    return 1600
+        return 4200
+    return 2200
+
+
+def response_length_style_line(response_length: str) -> str:
+    if response_length == "short":
+        return "- Keep replies to a few concise sentences unless the student asks for more."
+    if response_length == "extended":
+        return "- You may give detailed multi-step explanations and relevant quoted class-material passages when allowed."
+    if response_length == "long":
+        return "- Give fuller explanations with clear steps and enough context for math-heavy examples."
+    return "- Keep replies focused for chat, with enough detail to move the student forward."
 
 
 def tutor_behavior_lines(policy_title: str) -> list[str]:
@@ -794,6 +806,13 @@ def source_usage_lines(source_usage: dict[str, Any]) -> list[str]:
             ["- When using source material, mention the source title and include page numbers when available."]
             if source_usage["citeSourcePages"]
             else ["- When using source material, mention the source title when helpful; page citations are optional."]
+        ),
+        *(
+            [
+                "- When a student asks to pull up, read, or quote a specific passage from selected uploaded class material, quote the relevant passage exactly with source/page context, then explain or paraphrase it. Do not refuse on generic copyright grounds for selected class materials, and do not invent missing words."
+            ]
+            if source_usage["quoteSourcePassages"]
+            else ["- Include at most one short quote of 20 words or fewer from source material when useful, then paraphrase the idea."]
         ),
     ]
 

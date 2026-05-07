@@ -9,9 +9,14 @@ import {
   type AnswerPolicySettings,
   type SourceUsageSettings
 } from "@/lib/class-settings";
+import {
+  buildLearningStrategyTelemetry,
+  stripTeacherOnlyTutorResponseFields,
+  type LearningStrategyProfileContext
+} from "@/lib/learning-strategy-telemetry";
 import { defaultOpenRouterModelId } from "@/lib/model-options";
 import { buildTutorSystemPrompt, getTeacherClassTutorConfig, toProviderMessages } from "@/lib/prompts";
-import { getActiveStudentLearningProfileDigest } from "@/lib/student-learning-profiles-server";
+import { getActiveStudentLearningProfileTutorContext } from "@/lib/student-learning-profiles-server";
 import {
   ConversationPersistenceError,
   prepareStudentConversationPersistence,
@@ -19,7 +24,14 @@ import {
   type StudentConversationPersistence
 } from "@/lib/student-conversations-server";
 import { authorizeTutorChatRequest, TutorChatHttpError } from "@/lib/tutor-chat-auth";
-import type { TutorApiResponse } from "@/lib/types";
+import {
+  normalizeStructuredTutorOutput,
+  normalizeTutorResponse,
+  tutorHintLevels,
+  tutorModes,
+  tutorStudentActions
+} from "@/lib/tutor-response";
+import type { ChatMessage, TutorApiResponse } from "@/lib/types";
 
 const STUDENT_TUTOR_BACKEND_UNAVAILABLE_MESSAGE =
   "Chandra is having trouble connecting. Try again in a moment.";
@@ -73,6 +85,36 @@ const chatRequestSchema = z.object({
             title: z.string()
           })
         )
+        .optional(),
+      structuredOutput: z
+        .union([
+          z.object({
+            sections: z.object({
+              answer: z.string(),
+              hint: z.string().optional(),
+              explanation: z.string().optional(),
+              formula: z.string().optional(),
+              example: z.string().optional(),
+              checkWork: z.string().optional(),
+              sourceNote: z.string().optional(),
+              nextStep: z.string().optional()
+            }),
+            metadata: z.object({
+              hintLevel: z.enum(tutorHintLevels),
+              sourceConfidence: z.enum(["high", "medium", "low"]),
+              studentActionNeeded: z.enum(tutorStudentActions),
+              mode: z.enum(tutorModes)
+            })
+          }),
+          z.object({
+            answer: z.string(),
+            nextQuestion: z.string().optional(),
+            hintLevel: z.enum(tutorHintLevels),
+            sourceConfidence: z.enum(["high", "medium", "low"]),
+            studentActionNeeded: z.enum(tutorStudentActions),
+            mode: z.enum(tutorModes)
+          })
+        ])
         .optional()
     })
   )
@@ -112,7 +154,10 @@ export async function POST(request: Request) {
       return NextResponse.json(studentChatErrorPayload(chatError), { status: response.status });
     }
 
-    const tutorResponse = normalizeTutorResponse(await response.json());
+    const tutorResponse = withLearningStrategyTelemetry(
+      normalizeTutorResponse(await response.json()),
+      preparedRequest.learningProfileTelemetryContext
+    );
 
     if (preparedRequest.persistence) {
       await saveAssistantMessageWithoutBlockingTutorResponse({
@@ -124,7 +169,7 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json(withConversationMetadata(tutorResponse, preparedRequest.persistence));
+    return NextResponse.json(studentSafeTutorResponse(withConversationMetadata(tutorResponse, preparedRequest.persistence)));
   } catch (caughtError) {
     if (caughtError instanceof TutorChatHttpError) {
       const chatError = reportStudentChatError({
@@ -166,13 +211,17 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
   const temperature = creativityToTemperature(classModelSettings?.creativity ?? 35);
   const maxTokens = responseLengthToMaxTokens(classModelSettings?.responseLength ?? "medium");
   const reasoningEffort = classModelSettings?.reasoningEffort ?? "medium";
-  const studentLearningProfileDigest =
+  const studentLearningProfileContext =
     scope.role === "student"
-      ? await getStudentLearningProfileDigestForTutor({
+      ? await getStudentLearningProfileContextForTutor({
           classId: courseId,
           studentId: scope.uid
         })
-      : "";
+      : emptyLearningStrategyProfileContext();
+  const messages = data.messages.map((message) => ({
+    ...message,
+    structuredOutput: normalizeStructuredTutorOutput(message.structuredOutput, message.content)
+  })) as ChatMessage[];
 
   if (model === "demo-guided") {
     throw new TutorChatHttpError("Choose a real OpenRouter model for tutor chat.", 400);
@@ -182,7 +231,7 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
     await buildTutorSystemPrompt({
       courseId,
       retrievalHits: [],
-      studentLearningProfileDigest,
+      studentLearningProfileDigest: studentLearningProfileContext.digest,
       teacherClass
     }),
     buildPdfToolChoosingTutorSystemPrompt(teacherClass?.sourceUsage, teacherClass?.answerPolicy)
@@ -190,7 +239,7 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
 
   const persistence = await prepareStudentConversationPersistenceForTutor({
     conversationId: data.conversationId,
-    messages: data.messages,
+    messages,
     modelId: model,
     scope
   });
@@ -206,8 +255,9 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
       reasoningEffort,
       answerPolicy: teacherClass?.answerPolicy,
       sourceUsage: teacherClass?.sourceUsage,
-      messages: toProviderMessages(systemPrompt, data.messages)
+      messages: toProviderMessages(systemPrompt, messages)
     },
+    learningProfileTelemetryContext: studentLearningProfileContext,
     persistence,
     scope
   };
@@ -215,16 +265,23 @@ async function buildBackendChatRequest(request: Request, data: ParsedChatRequest
 
 type PreparedBackendChatRequest = Awaited<ReturnType<typeof buildBackendChatRequest>>;
 
-async function getStudentLearningProfileDigestForTutor(input: { classId: string; studentId: string }) {
+function emptyLearningStrategyProfileContext(): LearningStrategyProfileContext {
+  return {
+    digest: "",
+    strategies: []
+  };
+}
+
+async function getStudentLearningProfileContextForTutor(input: { classId: string; studentId: string }) {
   try {
-    return await getActiveStudentLearningProfileDigest(input);
+    return await getActiveStudentLearningProfileTutorContext(input);
   } catch (caughtError) {
     console.error("Student learning profile skipped for tutor chat", JSON.stringify({
       classId: input.classId,
       message: errorMessageForLog(caughtError),
       studentId: input.studentId
     }));
-    return "";
+    return emptyLearningStrategyProfileContext();
   }
 }
 
@@ -235,7 +292,7 @@ async function prepareStudentConversationPersistenceForTutor({
   scope
 }: {
   conversationId?: string;
-  messages: ParsedChatRequest["messages"];
+  messages: ChatMessage[];
   modelId: string;
   scope: Awaited<ReturnType<typeof authorizeTutorChatRequest>>;
 }) {
@@ -338,7 +395,10 @@ function streamTutorResponse(preparedRequest: PreparedBackendChatRequest) {
             const event = JSON.parse(line) as Record<string, unknown>;
 
             if (event.type === "final" && event.payload) {
-              const tutorResponse = normalizeTutorResponse(event.payload as Partial<TutorApiResponse>);
+              const tutorResponse = withLearningStrategyTelemetry(
+                normalizeTutorResponse(event.payload as Partial<TutorApiResponse>),
+                preparedRequest.learningProfileTelemetryContext
+              );
 
               if (preparedRequest.persistence) {
                 await saveAssistantMessageWithoutBlockingTutorResponse({
@@ -356,7 +416,7 @@ function streamTutorResponse(preparedRequest: PreparedBackendChatRequest) {
                 type: "step"
               });
               send({
-                payload: withConversationMetadata(tutorResponse, preparedRequest.persistence),
+                payload: studentSafeTutorResponse(withConversationMetadata(tutorResponse, preparedRequest.persistence)),
                 type: "final"
               });
             } else if (event.type === "error") {
@@ -468,6 +528,23 @@ function reportStudentChatError({
     errorId,
     studentMessage
   };
+}
+
+function withLearningStrategyTelemetry(
+  response: TutorApiResponse,
+  profileContext: LearningStrategyProfileContext
+): TutorApiResponse {
+  return {
+    ...response,
+    learningStrategyTelemetry: buildLearningStrategyTelemetry({
+      profileContext,
+      response
+    })
+  };
+}
+
+function studentSafeTutorResponse(response: TutorApiResponse): TutorApiResponse {
+  return stripTeacherOnlyTutorResponseFields(response);
 }
 
 function studentChatErrorPayload(error: ReportedStudentChatError) {
@@ -692,23 +769,6 @@ async function readBackendError(response: Response) {
   }
 }
 
-function normalizeTutorResponse(payload: Partial<TutorApiResponse>): TutorApiResponse {
-  const message = String(payload.message ?? payload.content ?? "");
-
-  return {
-    assistantMessageId: payload.assistantMessageId,
-    content: message,
-    conversationId: payload.conversationId,
-    langGraphTrace: payload.langGraphTrace,
-    message,
-    retrievalConfidence:
-      payload.retrievalConfidence === "high" || payload.retrievalConfidence === "medium"
-        ? payload.retrievalConfidence
-        : "low",
-    sources: Array.isArray(payload.sources) ? payload.sources : []
-  };
-}
-
 function withConversationMetadata(
   response: TutorApiResponse,
   persistence: StudentConversationPersistence | null
@@ -767,6 +827,7 @@ function buildPdfToolChoosingTutorSystemPrompt(
         "- If the student asks to find, identify, or locate a specific problem, search the problem PDF first: homework/problem sets, worksheets, assignments, or practice-problem PDFs. Do not search textbook/readings unless no problem-set match is found.",
         "- If the student asks about a concrete math problem, including a fully pasted problem, search for the exact problem/source first when class materials are available. Check problem PDFs, worksheets, assignments, practice problems, and textbook sections before helping.",
         "- After checking the exact problem/source, search textbook/readings only if method support would help.",
+        "- If the student asks about a textbook section or chapter, first search the generic textbook/reading section marker with the exact section/chapter number and topic words; do not assume a particular textbook title.",
         "- For conceptual method questions such as when to use a technique, how to recognize a pattern, why a rule works, or requests for examples, search textbook/readings/examples so the explanation can use the class wording."
       ]
     : [
@@ -800,11 +861,11 @@ function buildPdfToolChoosingTutorSystemPrompt(
       ];
   const citationRules = sourceUsage.citeSourcePages
     ? [
-        "- For solving help and method teaching, use the textbook/readings/examples directly: cite the page, include one short quote of 20 words or fewer when a relevant quote is available, then paraphrase the idea. Do not only say to refer to pages.",
+        pdfToolSourceUseInstruction(sourceUsage),
         "- When the opened PDF page visibly shows a printed document page number, use that printed page in the answer."
       ]
     : [
-        "- For solving help, use the selected pages directly. Mention source titles when helpful, but page citations are optional unless needed for clarity."
+        pdfToolSourceUseInstruction(sourceUsage)
       ];
   const unclearSourceRule = sourceUsage.askClarificationIfSourceUnclear
     ? "- After retrieval, answer only from selected pages. If they do not contain the answer and no sharper query is available, ask for the exact title, page, problem, or pasted text."
@@ -812,7 +873,7 @@ function buildPdfToolChoosingTutorSystemPrompt(
 
   return [
     "LangGraph PDF retrieval:",
-    "Tool: search_pdf_pages({ query, student_reason }) searches indexed class PDF page windows: homework/problem sets, worksheets, assignments, textbook/readings, notes, and examples. It returns the top 5 matching windows with metadata; LangGraph then opens the selected pages for the final answer.",
+    "Tool: search_pdf_pages({ query, student_reason }) searches indexed class PDF page windows: homework/problem sets, worksheets, assignments, textbook/readings, notes, and examples. It usually returns the top 5 matching windows with metadata; textbook section/chapter queries may return more related windows. LangGraph then opens the selected pages for the final answer.",
     "",
     "Use search_pdf_pages before answering when class PDFs could help solve, explain, or locate the student's question:",
     ...sourcePriorityRules,
@@ -827,6 +888,7 @@ function buildPdfToolChoosingTutorSystemPrompt(
     "Query rules:",
     "- Usually make one concise focused query from the student's exact wording plus the likely source type, any known title, page, section, problem number, topic/method, and recent source context.",
     "- For find/identify/locate requests, start the query with a locator verb such as find, where, locate, identify, or which, then include source-type terms like problem PDF, homework, problem set, worksheet, assignment, or practice problems. Do not include textbook unless the student asked for the textbook or no problem-set search has matched.",
+    "- For textbook section or chapter requests, query generically with `textbook reading`, the exact section/chapter marker, and topic words. Use the actual source title only if the student named it or a prior source citation supplied it.",
     "- When the student gives both a specific problem/source and needs conceptual solving help, you may call search_pdf_pages 2 or 3 times in the same turn with distinct complementary queries.",
     "- If the student only asks where a problem is, find the problem/source page in a problem set/assignment and stop. Do not search for textbook or method pages.",
     "- For a problem-solving request tied to a specific class source, do not stop at finding the exercise page. Search for both the exact problem/source and textbook/reading/example support for the method before answering.",
@@ -848,13 +910,38 @@ function buildPdfToolChoosingTutorSystemPrompt(
     "- If retrieval is not needed, answer directly.",
     unclearSourceRule,
     ...directAnswerRules.slice(1),
+    "- For textbook section or chapter help, answer from the selected pages for that section. If the selected pages do not match the requested section/chapter, search again before answering.",
     "- If selected pages only locate the problem but do not include textbook/readings/examples that explain the method, search again instead of giving solving help.",
     ...citationRules,
+    "- When a student gives a calculation, answer, or conclusion, verify it before affirming it. If it is incorrect, point out the first wrong step or value and continue from the corrected idea.",
     "- Help the student find the next move with a targeted question or small hint. Do not state the next move outright or solve the whole problem immediately.",
+    "",
+    "Student-facing section guidance:",
+    "- Keep most replies as one clean answer plus one final next-step question. Use fewer sections whenever the answer is clear without them.",
+    "- Choose optional sections from the student's intent, not from a fixed template.",
+    "- The app can split optional student-facing sections from your final text. Only use these exact labels when they add clarity: `Hint:` for a short nudge, `Why this works:` for a brief conceptual explanation, `Formula:` for a compact formula block, `Example:` for a similar example that does not solve the student's exact problem, and `Check your work:` when responding to the student's attempted work.",
+    "- Use `Hint:` when the student is stuck or asks how to start. Use `Why this works:` when they ask why, what a concept means, or how to recognize a method. Use `Formula:` when they ask for a rule/formula or the formula is the main help. Use `Example:` only for a similar example or when redirecting from an answer-only request. Use `Check your work:` only when the student shows work, asks if a step is valid, or wants an error found.",
+    "- Do not write `Source:`, `Sources:`, or `Based on selected class material` as a separate section. Cite source titles and page numbers naturally in the answer; the app renders source chips separately.",
+    "- Do not write `Answer:`, `Question:`, `Next step:`, or `Your next step:`. End with one direct question for the student instead.",
+    "- Do not force optional labels into every reply. Skip them for greetings, short clarifications, direct refusals, or already-clear answers.",
+    "- Use at most two optional labeled sections in one reply unless the student explicitly asks for a formula plus example plus work check. Keep each optional section compact: 1-2 sentences each.",
+    "- In optional sections, do not bold the section content with `**`. Put math inside `$...$` or `$$...$$` so it renders cleanly.",
     "- Internal PDF render indexes are not student-facing page numbers.",
     "- For problem-location answers, use this shape: `$integral$ is Problem N in Section X, on printed page P of Title.`",
     "- Do not restate an integral the student already supplied more than once.",
     "Guide learning without simply completing graded work for the student.",
     "Use `$...$` or `$$...$$` for math expressions."
   ].join("\n");
+}
+
+function pdfToolSourceUseInstruction(sourceUsage: SourceUsageSettings) {
+  const citationPhrase = sourceUsage.citeSourcePages
+    ? "cite page/source context when available"
+    : "mention source titles when helpful";
+
+  if (!sourceUsage.quoteSourcePassages) {
+    return `- For solving help and method teaching, use the textbook/readings/examples directly: ${citationPhrase}, include at most one short quote of 20 words or fewer when useful, then paraphrase the idea. Do not only say to refer to pages.`;
+  }
+
+  return `- For solving help, method teaching, or passage lookup, use selected uploaded class materials directly: ${citationPhrase}, quote the relevant passage exactly when the student asks to pull up/read/quote it, then explain or paraphrase. Do not refuse on generic copyright grounds for selected class materials, and do not invent missing words.`;
 }

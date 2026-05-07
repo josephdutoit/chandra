@@ -1,9 +1,12 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb, assertFirebaseAdminAuthReady } from "./firebase-admin";
+import type { LearningStrategyProfileContext } from "./learning-strategy-telemetry";
 import { defaultOpenRouterModelId } from "./model-options";
 import { ConversationPersistenceError, listTeacherConversationMessages } from "./student-conversations-server";
 import type {
   ChatMessage,
+  LearningStrategyTelemetry,
+  RetrievalConfidence,
   StudentLearningEvidenceObservationType,
   StudentLearningProfileConfidence,
   StudentLearningProfileContent,
@@ -71,6 +74,9 @@ type StudentLearningConversationForModel = {
     role: "student" | "assistant";
     createdAt: string;
     content: string;
+    learningStrategyTelemetry?: LearningStrategyTelemetry;
+    retrievalConfidence?: RetrievalConfidence;
+    sources?: ChatMessage["sources"];
   }>;
 };
 
@@ -81,13 +87,25 @@ export function encodedStudentLearningProfileId({ studentEmail, studentId }: { s
 }
 
 export async function getActiveStudentLearningProfileDigest(input: StudentProfileIdentity) {
+  return (await getActiveStudentLearningProfileTutorContext(input)).digest;
+}
+
+export async function getActiveStudentLearningProfileTutorContext(
+  input: StudentProfileIdentity
+): Promise<LearningStrategyProfileContext> {
   const profileDocument = await getStudentLearningProfile(input);
 
   if (!profileDocument?.active || !profileDocument.teacherReviewed || !profileDocument.activeProfile) {
-    return "";
+    return {
+      digest: "",
+      strategies: []
+    };
   }
 
-  return buildStudentLearningProfileDigest(profileDocument);
+  return {
+    digest: buildStudentLearningProfileDigest(profileDocument),
+    strategies: buildLearningStrategyTelemetryCandidates(profileDocument.activeProfile)
+  };
 }
 
 export async function getStudentLearningProfile(input: StudentProfileIdentity): Promise<StudentLearningProfileDocument | null> {
@@ -457,6 +475,20 @@ function compactProfileLine(label: string, items: string[]) {
   return filteredItems.length ? `${label}: ${filteredItems.join("; ")}` : "";
 }
 
+function buildLearningStrategyTelemetryCandidates(profile: StudentLearningProfileContent) {
+  return [
+    ...profile.strategiesToTryNext.map((strategy) => ({
+      label: strategy,
+      source: "strategiesToTryNext" as const
+    })),
+    ...profile.triedStrategies.map((strategy) => ({
+      id: strategy.id,
+      label: strategy.strategy,
+      source: "triedStrategies" as const
+    }))
+  ].filter((strategy) => strategy.label.trim());
+}
+
 async function setProfileState(input: StudentProfileIdentity, data: Record<string, unknown>) {
   const identity = await resolveStudentProfileIdentity(input);
   const profileId = encodedStudentLearningProfileId(identity);
@@ -561,9 +593,8 @@ async function loadRecentConversationsForProfileUpdate({
   for (const conversationDoc of conversationDocs.slice(0, profileModelMaxConversations)) {
     const conversation = conversationDoc.data() ?? {};
     const messages = await listTeacherConversationMessages({ classId, conversationId: conversationDoc.id });
-    const filteredMessages = messages
-      .filter((message) => message.role === "student" || message.role === "assistant")
-      .filter((message) => !sinceMillis || timestampMillis(message.createdAt) > sinceMillis)
+    const transcriptMessages = messages.filter((message) => message.role === "student" || message.role === "assistant");
+    const filteredMessages = selectProfileUpdateTranscriptMessages(transcriptMessages, sinceMillis)
       .slice(-profileModelMaxMessagesPerConversation);
 
     if (!filteredMessages.length) {
@@ -578,6 +609,9 @@ async function loadRecentConversationsForProfileUpdate({
         content: sanitizeTranscriptText(message.content),
         createdAt: message.createdAt,
         id: message.id,
+        learningStrategyTelemetry: message.role === "assistant" ? message.learningStrategyTelemetry : undefined,
+        retrievalConfidence: message.role === "assistant" ? message.retrievalConfidence : undefined,
+        sources: message.role === "assistant" ? message.sources : undefined,
         role: message.role as "student" | "assistant"
       })),
       title: String(conversation.title ?? "Conversation").slice(0, 120)
@@ -585,6 +619,26 @@ async function loadRecentConversationsForProfileUpdate({
   }
 
   return conversations;
+}
+
+function selectProfileUpdateTranscriptMessages(messages: ChatMessage[], sinceMillis: number) {
+  if (!sinceMillis) {
+    return messages;
+  }
+
+  const includedIndexes = new Set<number>();
+
+  messages.forEach((message, index) => {
+    if (timestampMillis(message.createdAt) <= sinceMillis) {
+      return;
+    }
+
+    includedIndexes.add(index - 1);
+    includedIndexes.add(index);
+    includedIndexes.add(index + 1);
+  });
+
+  return messages.filter((_message, index) => includedIndexes.has(index));
 }
 
 async function getStudentConversationDocs({
@@ -662,6 +716,10 @@ function buildProfileUpdateSystemPrompt() {
     "Use phrasing like 'the student benefits from...' or 'try...'. Do not label the student lazy, weak, anxious, disabled, unmotivated, or similar.",
     "Do not infer diagnosis, emotion, protected or sensitive traits, discipline, placement, grading, or high-stakes decisions.",
     "Preserve useful existing profile details, remove stale or contradicted claims, and avoid overfitting to one conversation.",
+    "Use assistant learningStrategyTelemetry when present to update triedStrategies, effectiveSupports, lessEffectiveSupports, strategiesToTryNext, and evidence.",
+    "Treat telemetry as teacher-only strategy evidence, not as grading, discipline, diagnosis, placement, or sensitive trait data.",
+    "When telemetry observedOutcome is student_progressed, consider whether the selected tutorMove or selectedStrategy appears helpful, using adjacent student turns as confirmation.",
+    "When telemetry observedOutcome is student_still_stuck, consider whether to mark the support less effective, revise nextAction, or try a different strategy.",
     "Update strategy statuses, retire ineffective supports, add strategies to try, track small improvements, and include concise evidence references.",
     "In profileChangeNotes, briefly explain meaningful changes from the previous profile and the evidence behind them.",
     "JSON fields: summary, learningSignals, effectiveSupports, lessEffectiveSupports, strategiesToTryNext, avoid, openQuestions, notableImprovements, profileChangeNotes, triedStrategies, evidence.",

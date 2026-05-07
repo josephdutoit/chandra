@@ -57,6 +57,7 @@ test("student classId scopes vector retrieval", () => {
   assert.match(source, /\.where\("classId", "==", classId\)/);
   assert.match(source, /findNearest\(/);
   assert.match(source, /Vector retrieval requires professor_id metadata/);
+  assert.match(source, /pageEnd,\s*\n\s*pageNumber,\s*\n\s*pageStart,/);
 });
 
 test("material upload progress is written to professor-scoped job documents", () => {
