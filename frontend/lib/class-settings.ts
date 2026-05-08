@@ -106,12 +106,12 @@ export const defaultStudentFacingInstructions =
   "Show your work. Use exact values unless your teacher asks for decimals.";
 
 export const defaultRefusalStyle =
-  "If a student asks for a direct answer, ask what they have tried, offer to check their work, or walk through a similar example instead.";
+  "If a student asks for a direct answer or homework-ready wording for the exact task, ask what they have tried, offer to check their work, or walk through a clearly different similar example instead.";
 
 export const defaultBehaviorInstructions = [
   "Ask students to explain their thinking before giving hints.",
   "If a student names a specific task without showing work, ask what they have tried before giving task-specific hints.",
-  "Do not provide final answers unless the student has already shown the main reasoning.",
+  "Do not provide final answers, proof paragraphs, sentence starters, or homework-ready wording unless the student has already shown the main reasoning.",
   "Use course materials to orient hints and explanations without starting the student's exact task for them."
 ].join("\n");
 

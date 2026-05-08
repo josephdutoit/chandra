@@ -134,9 +134,11 @@ service cloud.firestore {
           "behaviorInstructions",
           "defaultAssignmentContext",
           "modelSettings",
+          "openingMessage",
           "refusalStyle",
           "responseFormat",
           "sourceUsage",
+          "studentFacingInstructions",
           "themeColor",
           "createdAt"
         ])
@@ -154,9 +156,11 @@ service cloud.firestore {
         && request.resource.data.behaviorInstructions is string
         && request.resource.data.defaultAssignmentContext is string
         && validModelSettings(request.resource.data.modelSettings)
+        && request.resource.data.openingMessage is string
         && request.resource.data.refusalStyle is string
         && validResponseFormat(request.resource.data.responseFormat)
         && validSourceUsage(request.resource.data.sourceUsage)
+        && request.resource.data.studentFacingInstructions is string
         && validThemeColor(request.resource.data.themeColor)
         && request.resource.data.createdAt == request.time;
     }
@@ -172,9 +176,11 @@ service cloud.firestore {
             "behaviorInstructions",
             "defaultAssignmentContext",
             "modelSettings",
+            "openingMessage",
             "refusalStyle",
             "responseFormat",
             "sourceUsage",
+            "studentFacingInstructions",
             "themeColor"
           ])
         && request.resource.data.teacherId == resource.data.teacherId
@@ -197,9 +203,11 @@ service cloud.firestore {
           "behaviorInstructions",
           "defaultAssignmentContext",
           "modelSettings",
+          "openingMessage",
           "refusalStyle",
           "responseFormat",
           "sourceUsage",
+          "studentFacingInstructions",
           "themeColor"
         ])
         && request.resource.data.name is string
@@ -212,9 +220,11 @@ service cloud.firestore {
         && request.resource.data.defaultAssignmentContext is string
         && validModelSettings(request.resource.data.modelSettings)
         && request.resource.data.behaviorInstructions is string
+        && request.resource.data.openingMessage is string
         && request.resource.data.refusalStyle is string
         && validResponseFormat(request.resource.data.responseFormat)
         && validSourceUsage(request.resource.data.sourceUsage)
+        && request.resource.data.studentFacingInstructions is string
         && validThemeColor(request.resource.data.themeColor);
     }
 

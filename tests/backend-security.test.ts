@@ -153,6 +153,10 @@ test("Firestore class settings rules accept the current teacher settings schema"
   assert.match(rules, /"quoteSourcePassages"/);
   assert.match(rules, /sourceUsage\.quoteSourcePassages is bool/);
   assert.match(rules, /modelSettings\.responseLength in \["short", "medium", "long", "extended"\]/);
+  assert.match(rules, /"openingMessage"/);
+  assert.match(rules, /request\.resource\.data\.openingMessage is string/);
+  assert.match(rules, /"studentFacingInstructions"/);
+  assert.match(rules, /request\.resource\.data\.studentFacingInstructions is string/);
 });
 
 test("Firestore user theme preference updates only validate theme fields", () => {
