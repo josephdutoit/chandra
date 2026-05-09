@@ -50,17 +50,10 @@ export async function GET(request: Request) {
     }
 
     if (email) {
-      const rosterSnapshot = await adminDb!
-        .collectionGroup("students")
-        .where("email", "==", email)
-        .get();
+      const rosterClassIds = await getRosterClassIdsByEmail(email);
 
-      for (const rosterDoc of rosterSnapshot.docs) {
-        const classReference = rosterDoc.ref.parent.parent;
-
-        if (classReference) {
-          classIds.add(classReference.id);
-        }
+      for (const classId of rosterClassIds) {
+        classIds.add(classId);
       }
     }
 
@@ -79,7 +72,32 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: message }, { status: 500 });
     }
 
+    console.error("Student classes failed to load.", caughtError);
+
     return NextResponse.json({ error: "Student classes failed to load." }, { status: 500 });
+  }
+}
+
+async function getRosterClassIdsByEmail(email: string) {
+  try {
+    const rosterSnapshot = await adminDb!
+      .collectionGroup("students")
+      .where("email", "==", email)
+      .get();
+    const classIds = new Set<string>();
+
+    for (const rosterDoc of rosterSnapshot.docs) {
+      const classReference = rosterDoc.ref.parent.parent;
+
+      if (classReference) {
+        classIds.add(classReference.id);
+      }
+    }
+
+    return classIds;
+  } catch (caughtError) {
+    console.warn("Student roster class lookup failed; falling back to profile class ids.", caughtError);
+    return new Set<string>();
   }
 }
 

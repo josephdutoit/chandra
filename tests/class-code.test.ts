@@ -55,6 +55,8 @@ test("student class joins are additive and keep enrolled class ids", () => {
   assert.match(joinSource, /classIds: FieldValue\.arrayUnion\(nextClassId\)/);
   assert.match(classesSource, /Array\.isArray\(profile\.classIds\)/);
   assert.match(classesSource, /classIds\.add\(classId\.trim\(\)\)/);
+  assert.match(classesSource, /getRosterClassIdsByEmail\(email\)/);
+  assert.match(classesSource, /Student roster class lookup failed; falling back to profile class ids/);
   assert.match(rulesSource, /data\.classIds is list/);
   assert.match(rulesSource, /data\.classIds\.hasAny\(\[classId\]\)/);
 });
